@@ -1,0 +1,249 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.8.0
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+<!-- #region colab_type="text" -->
+This is a companion notebook for the book [Deep Learning with Python, Second Edition](https://www.manning.com/books/deep-learning-with-python-second-edition?a_aid=keras&a_bid=76564dff). For readability, it only contains runnable code blocks and section titles, and omits everything else in the book: text paragraphs, figures, and pseudocode.
+
+**If you want to be able to follow what's going on, I recommend reading the notebook side by side with your copy of the book.**
+
+This notebook was generated for TensorFlow 2.6.
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+# Best practices for the real world
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## Getting the most out of your models
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Hyperparameter optimization
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Using KerasTuner
+<!-- #endregion -->
+
+```{python colab_type="code"}
+# !pip install keras-tuner -q
+```
+
+<!-- #region colab_type="text" -->
+**A KerasTuner model-building function**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow import keras
+from tensorflow.keras import layers
+
+def build_model(hp):
+    units = hp.Int(name="units", min_value=16, max_value=64, step=16)
+    model = keras.Sequential([
+        layers.Dense(units, activation="relu"),
+        layers.Dense(10, activation="softmax")
+    ])
+    optimizer = hp.Choice(name="optimizer", values=["rmsprop", "adam"])
+    model.compile(
+        optimizer=optimizer,
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"])
+    return model
+```
+
+<!-- #region colab_type="text" -->
+**A KerasTuner `HyperModel`**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import kerastuner as kt
+
+class SimpleMLP(kt.HyperModel):
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
+
+    def build(self, hp):
+        units = hp.Int(name="units", min_value=16, max_value=64, step=16)
+        model = keras.Sequential([
+            layers.Dense(units, activation="relu"),
+            layers.Dense(self.num_classes, activation="softmax")
+        ])
+        optimizer = hp.Choice(name="optimizer", values=["rmsprop", "adam"])
+        model.compile(
+            optimizer=optimizer,
+            loss="sparse_categorical_crossentropy",
+            metrics=["accuracy"])
+        return model
+
+hypermodel = SimpleMLP(num_classes=10)
+```
+
+```{python colab_type="code"}
+tuner = kt.BayesianOptimization(
+    build_model,
+    objective="val_accuracy",
+    max_trials=100,
+    executions_per_trial=2,
+    directory="mnist_kt_test",
+    overwrite=True,
+)
+```
+
+```{python colab_type="code"}
+tuner.search_space_summary()
+```
+
+```{python colab_type="code"}
+(x_train, y_train), (x_test, y_test) = keras.datasets.mnist.load_data()
+x_train = x_train.reshape((-1, 28 * 28)).astype("float32") / 255
+x_test = x_test.reshape((-1, 28 * 28)).astype("float32") / 255
+x_train_full = x_train[:]
+y_train_full = y_train[:]
+num_val_samples = 10000
+x_train, x_val = x_train[:-num_val_samples], x_train[-num_val_samples:]
+y_train, y_val = y_train[:-num_val_samples], y_train[-num_val_samples:]
+callbacks = [
+    keras.callbacks.EarlyStopping(monitor="val_loss", patience=5),
+]
+tuner.search(
+    x_train, y_train,
+    batch_size=128,
+    epochs=100,
+    validation_data=(x_val, y_val),
+    callbacks=callbacks,
+    verbose=2,
+)
+```
+
+<!-- #region colab_type="text" -->
+**Querying the best hyperparameter configurations**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+top_n = 4
+best_hps = tuner.get_best_hyperparameters(top_n)
+```
+
+```{python colab_type="code"}
+def get_best_epoch(hp):
+    model = build_model(hp)
+    callbacks=[
+        keras.callbacks.EarlyStopping(
+            monitor="val_loss", mode="min", patience=10)
+    ]
+    history = model.fit(
+        x_train, y_train,
+        validation_data=(x_val, y_val),
+        epochs=100,
+        batch_size=128,
+        callbacks=callbacks)
+    val_loss_per_epoch = history.history["val_loss"]
+    best_epoch = val_loss_per_epoch.index(min(val_loss_per_epoch)) + 1
+    print(f"Best epoch: {best_epoch}")
+    return best_epoch
+```
+
+```{python colab_type="code"}
+def get_best_trained_model(hp):
+    best_epoch = get_best_epoch(hp)
+    model.fit(
+        x_train_full, y_train_full,
+        batch_size=128, epochs=int(best_epoch * 1.2))
+    return model
+
+best_models = []
+for hp in best_hps:
+    model = get_best_trained_model(hp)
+    model.evaluate(x_test, y_test)
+    best_models.append(model)
+```
+
+```{python colab_type="code"}
+best_models = tuner.get_best_models(top_n)
+```
+
+<!-- #region colab_type="text" -->
+#### The art of crafting the right search space
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### The future of hyperparameter tuning: automated machine learning
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Model ensembling
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## Scaling-up model training
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Speeding up training on GPU with mixed precision
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Understanding floating-point precision
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import tensorflow as tf
+import numpy as np
+np_array = np.zeros((2, 2))
+tf_tensor = tf.convert_to_tensor(np_array)
+tf_tensor.dtype
+```
+
+```{python colab_type="code"}
+np_array = np.zeros((2, 2))
+tf_tensor = tf.convert_to_tensor(np_array, dtype="float32")
+tf_tensor.dtype
+```
+
+<!-- #region colab_type="text" -->
+#### Mixed-precision training in practice
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow import keras
+keras.mixed_precision.set_global_policy("mixed_float16")
+```
+
+<!-- #region colab_type="text" -->
+### Multi-GPU training
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Getting your hands on two or more GPUs
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Single-host, multi-device synchronous training
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### TPU training
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Using a TPU via Google Colab
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Leveraging step fusing to improve TPU utilization
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## Summary
+<!-- #endregion -->

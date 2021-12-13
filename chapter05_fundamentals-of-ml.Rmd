@@ -1,0 +1,441 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.8.0
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+<!-- #region colab_type="text" -->
+This is a companion notebook for the book [Deep Learning with Python, Second Edition](https://www.manning.com/books/deep-learning-with-python-second-edition?a_aid=keras&a_bid=76564dff). For readability, it only contains runnable code blocks and section titles, and omits everything else in the book: text paragraphs, figures, and pseudocode.
+
+**If you want to be able to follow what's going on, I recommend reading the notebook side by side with your copy of the book.**
+
+This notebook was generated for TensorFlow 2.6.
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+# Fundamentals of machine learning
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## Generalization: The goal of machine learning
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Underfitting and overfitting
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Noisy training data
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Ambiguous features
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Rare features and spurious correlations
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**Adding white-noise channels or all-zeros channels to MNIST**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow.keras.datasets import mnist
+import numpy as np
+
+(train_images, train_labels), _ = mnist.load_data()
+train_images = train_images.reshape((60000, 28 * 28))
+train_images = train_images.astype("float32") / 255
+
+train_images_with_noise_channels = np.concatenate(
+    [train_images, np.random.random((len(train_images), 784))], axis=1)
+
+train_images_with_zeros_channels = np.concatenate(
+    [train_images, np.zeros((len(train_images), 784))], axis=1)
+```
+
+<!-- #region colab_type="text" -->
+**Training the same model on MNIST data with noise channels or all-zero channels**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow import keras
+from tensorflow.keras import layers
+
+def get_model():
+    model = keras.Sequential([
+        layers.Dense(512, activation="relu"),
+        layers.Dense(10, activation="softmax")
+    ])
+    model.compile(optimizer="rmsprop",
+                  loss="sparse_categorical_crossentropy",
+                  metrics=["accuracy"])
+    return model
+
+model = get_model()
+history_noise = model.fit(
+    train_images_with_noise_channels, train_labels,
+    epochs=10,
+    batch_size=128,
+    validation_split=0.2)
+
+model = get_model()
+history_zeros = model.fit(
+    train_images_with_zeros_channels, train_labels,
+    epochs=10,
+    batch_size=128,
+    validation_split=0.2)
+```
+
+<!-- #region colab_type="text" -->
+**Plotting a validation accuracy comparison**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import matplotlib.pyplot as plt
+val_acc_noise = history_noise.history["val_accuracy"]
+val_acc_zeros = history_zeros.history["val_accuracy"]
+epochs = range(1, 11)
+plt.plot(epochs, val_acc_noise, "b-",
+         label="Validation accuracy with noise channels")
+plt.plot(epochs, val_acc_zeros, "b--",
+         label="Validation accuracy with zeros channels")
+plt.title("Effect of noise channels on validation accuracy")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend()
+```
+
+<!-- #region colab_type="text" -->
+### The nature of generalization in deep learning
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**Fitting a MNIST model with randomly shuffled labels**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+(train_images, train_labels), _ = mnist.load_data()
+train_images = train_images.reshape((60000, 28 * 28))
+train_images = train_images.astype("float32") / 255
+
+random_train_labels = train_labels[:]
+np.random.shuffle(random_train_labels)
+
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(10, activation="softmax")
+])
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+model.fit(train_images, random_train_labels,
+          epochs=100,
+          batch_size=128,
+          validation_split=0.2)
+```
+
+<!-- #region colab_type="text" -->
+#### The manifold hypothesis
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Interpolation as a source of generalization
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Why deep learning works
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Training data is paramount
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## Evaluating machine-learning models
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Training, validation, and test sets
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Simple hold-out validation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### K-fold validation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Iterated K-fold validation with shuffling
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Beating a common-sense baseline
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Things to keep in mind about model evaluation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## Improving model fit
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Tuning key gradient descent parameters
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**Training a MNIST model with an incorrectly high learning rate**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+(train_images, train_labels), _ = mnist.load_data()
+train_images = train_images.reshape((60000, 28 * 28))
+train_images = train_images.astype("float32") / 255
+
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(10, activation="softmax")
+])
+model.compile(optimizer=keras.optimizers.RMSprop(1.),
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+model.fit(train_images, train_labels,
+          epochs=10,
+          batch_size=128,
+          validation_split=0.2)
+```
+
+<!-- #region colab_type="text" -->
+**The same model with a more appropriate learning rate**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(10, activation="softmax")
+])
+model.compile(optimizer=keras.optimizers.RMSprop(1e-2),
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+model.fit(train_images, train_labels,
+          epochs=10,
+          batch_size=128,
+          validation_split=0.2)
+```
+
+<!-- #region colab_type="text" -->
+### Leveraging better architecture priors
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Increasing model capacity
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**A simple logistic regression on MNIST**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model = keras.Sequential([layers.Dense(10, activation="softmax")])
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+history_small_model = model.fit(
+    train_images, train_labels,
+    epochs=20,
+    batch_size=128,
+    validation_split=0.2)
+```
+
+```{python colab_type="code"}
+import matplotlib.pyplot as plt
+val_loss = history_small_model.history["val_loss"]
+epochs = range(1, 21)
+plt.plot(epochs, val_loss, "b--",
+         label="Validation loss")
+plt.title("Effect of insufficient model capacity on validation loss")
+plt.xlabel("Epochs")
+plt.ylabel("Loss")
+plt.legend()
+```
+
+```{python colab_type="code"}
+model = keras.Sequential([
+    layers.Dense(96, activation="relu"),
+    layers.Dense(96, activation="relu"),
+    layers.Dense(10, activation="softmax"),
+])
+model.compile(optimizer="rmsprop",
+              loss="sparse_categorical_crossentropy",
+              metrics=["accuracy"])
+history_large_model = model.fit(
+    train_images, train_labels,
+    epochs=20,
+    batch_size=128,
+    validation_split=0.2)
+```
+
+<!-- #region colab_type="text" -->
+## Improving generalization
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Dataset curation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Feature engineering
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Using early stopping
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### Regularizing your model
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Reducing the network's size
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**Original model**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow.keras.datasets import imdb
+(train_data, train_labels), _ = imdb.load_data(num_words=10000)
+
+def vectorize_sequences(sequences, dimension=10000):
+    results = np.zeros((len(sequences), dimension))
+    for i, sequence in enumerate(sequences):
+        results[i, sequence] = 1.
+    return results
+train_data = vectorize_sequences(train_data)
+
+model = keras.Sequential([
+    layers.Dense(16, activation="relu"),
+    layers.Dense(16, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+history_original = model.fit(train_data, train_labels,
+                             epochs=20, batch_size=512, validation_split=0.4)
+```
+
+<!-- #region colab_type="text" -->
+**Version of the model with lower capacity**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model = keras.Sequential([
+    layers.Dense(4, activation="relu"),
+    layers.Dense(4, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+history_smaller_model = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4)
+```
+
+<!-- #region colab_type="text" -->
+**Version of the model with higher capacity**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model = keras.Sequential([
+    layers.Dense(512, activation="relu"),
+    layers.Dense(512, activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+history_larger_model = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4)
+```
+
+<!-- #region colab_type="text" -->
+#### Adding weight regularization
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**Adding L2 weight regularization to the model**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow.keras import regularizers
+model = keras.Sequential([
+    layers.Dense(16,
+                 kernel_regularizer=regularizers.l2(0.002),
+                 activation="relu"),
+    layers.Dense(16,
+                 kernel_regularizer=regularizers.l2(0.002),
+                 activation="relu"),
+    layers.Dense(1, activation="sigmoid")
+])
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+history_l2_reg = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4)
+```
+
+<!-- #region colab_type="text" -->
+**Different weight regularizers available in Keras**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow.keras import regularizers
+regularizers.l1(0.001)
+regularizers.l1_l2(l1=0.001, l2=0.001)
+```
+
+<!-- #region colab_type="text" -->
+#### Adding dropout
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**Adding dropout to the IMDB model**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model = keras.Sequential([
+    layers.Dense(16, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(16, activation="relu"),
+    layers.Dropout(0.5),
+    layers.Dense(1, activation="sigmoid")
+])
+model.compile(optimizer="rmsprop",
+              loss="binary_crossentropy",
+              metrics=["accuracy"])
+history_dropout = model.fit(
+    train_data, train_labels,
+    epochs=20, batch_size=512, validation_split=0.4)
+```
+
+<!-- #region colab_type="text" -->
+## Summary
+<!-- #endregion -->
