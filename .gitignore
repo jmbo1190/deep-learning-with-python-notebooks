@@ -1,0 +1,12 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.gz
+*.gz.?
+*.keras
+*.png
+*.htm
+*.html
+*.zip
+*/
