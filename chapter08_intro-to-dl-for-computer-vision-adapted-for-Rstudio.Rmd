@@ -37,7 +37,8 @@ jupyter:
 knitr::opts_chunk$set(error=TRUE, warning = TRUE, message = TRUE)
 
 library(reticulate)
-vrbs <- 2
+vrbs <- 2 # This enables a per-epoch summary in Rstudio IDE (1 would print many lines per epoch) 
+
 if (exists("params", mode = "list")) vrbs <- params$verbose
 
 # Function to check GPU state and display the most relevant information 
@@ -63,11 +64,14 @@ nvidia_smi <- function(show = TRUE){
 
 ```{python}
 if 'r' in dir():
+    # This should be the case when this .Rmd file is run in Rstudio IDE via the reticulate package
     pass
 else:
+    # This should be the case when this .Rmd file is run in Jupyter Notebook IDE
     # make R objects available in python
     import rpy2.robjects as robjects
     r = robjects.r
+    r.vrbs = 1.0  # this amkes training progress bars visible in Jupyter Notebook
     
 r.vrbs
 ```
@@ -131,8 +135,8 @@ from tensorflow.keras.datasets import mnist
 ```{python colab_type="code"}
 import numpy as np
 
-np.shape(test_images)
-np.shape(test_labels)
+print("test_images shape:", np.shape(test_images))
+print("test_labels shape:", np.shape(test_labels))
 
 ```
 
@@ -145,8 +149,8 @@ test_images = test_images.astype("float32") / 255
 ```
 
 ```{python colab_type="code"}
-np.shape(test_images)
-np.shape(test_labels)
+print("test_images shape:", np.shape(test_images))
+print("test_labels shape:", np.shape(test_labels))
 
 ```
 
@@ -163,8 +167,8 @@ model.fit(train_images, train_labels, epochs=5, batch_size=64, verbose = r.vrbs)
 <!-- #endregion -->
 
 ```{python colab_type="code"}
-np.shape(test_images)
-np.shape(test_labels)
+print("test_images shape:", np.shape(test_images))
+print("test_labels shape:", np.shape(test_labels))
 
 test_loss, test_acc = model.evaluate(test_images, test_labels, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
@@ -204,6 +208,14 @@ model_no_max_pool = keras.Model(inputs=inputs, outputs=outputs)
 
 ```{python colab_type="code"}
 model_no_max_pool.summary()
+
+```
+
+```{python}
+model_no_max_pool.compile(optimizer="rmsprop",
+    loss="sparse_categorical_crossentropy",
+    metrics=["accuracy"])
+model_no_max_pool.fit(train_images, train_labels, epochs=5, batch_size=64, verbose = r.vrbs)
 
 ```
 
@@ -249,7 +261,7 @@ install("kaggle")
 ```{bash}
 which kaggle
 
-kaggle competitions download -c dogs-vs-cats
+[ ! -e dogs-vs-cats.zip ] && kaggle competitions download -c dogs-vs-cats  || echo "Already downloaded: dogs-vs-cats.zip"
 
 ```
 
@@ -340,14 +352,19 @@ model.compile(loss="binary_crossentropy",
 ```{python colab_type="code"}
 from tensorflow.keras.utils import image_dataset_from_directory
 
+print("train dataset:")
 train_dataset = image_dataset_from_directory(
     new_base_dir / "train",
     image_size=(180, 180),
     batch_size=32)
+
+print("validation dataset:")
 validation_dataset = image_dataset_from_directory(
     new_base_dir / "validation",
     image_size=(180, 180),
     batch_size=32)
+
+print("test dataset")
 test_dataset = image_dataset_from_directory(
     new_base_dir / "test",
     image_size=(180, 180),
@@ -725,12 +742,69 @@ model.compile(loss="binary_crossentropy",
 
 ```
 
+```{python}
+import os
+import sys
+import tempfile
+import socket
+
+tb_exec = (os.path.join(os.path.dirname(sys.executable), "tensorboard"))
+if os.path.exists(tb_exec):
+    os.environ["TENSORBOARD_BINARY"] = tb_exec
+    
+TF_LOGDIR = "./feature_extraction_with_data_augmentation_log_dir"
+
+TEMPDIR = tempfile.gettempdir()
+print("TEMPDIR: ", TEMPDIR)
+
+if 'JUPYTERHUB_USER' in os.environ:
+    USER = os.environ['JUPYTERHUB_USER']
+else:
+    USER = '<user>'
+# print('USER:', USER)
+
+HOST=socket.gethostname()
+# print('HOST:', HOST)
+
+
+from IPython.display import display, Markdown #, Latex
+
+display(Markdown(f"""#### Access tensorboard remotely:
+1. Create an ssh tunnel for port 6006, e.g. in Windows PowerShell: `ssh -N -f -L localhost:6006:localhost:6006 {USER}@{HOST} `
+2. browse to: http://127.0.0.1:6006/
+
+"""))
+
+# Need to clean up when tensorboard did not exit cleanly
+# !killall tensorboard
+#![ -e {TEMPDIR}/.tensorboard-info ] && ls -al {TEMPDIR}/.tensorboard-info && rm -r {TEMPDIR}/.tensorboard-info
+![ -e {TEMPDIR}/.tensorboard-info ] &&  rm -r {TEMPDIR}/.tensorboard-info
+
+# #%load_ext tensorboard
+# #%reload_ext tensorboard
+# #%tensorboard --logdir {TF_LOGDIR} --host 127.0.0.1 --port 6006
+# #%tensorboard --logdir {TF_LOGDIR} --host ub5 --port 6006
+#!{tb_exec} --logdir {TF_LOGDIR} --host 127.0.0.1 --port 6006 &   # OSError: Background processes not supported.
+
+import subprocess
+subprocess.Popen([tb_exec, "--logdir", TF_LOGDIR, "--host", "127.0.0.1", "--port", "6006"])
+
+import time
+time.sleep(3)
+
+from tensorboard import notebook
+notebook.list() # View open TensorBoard instances
+```
+
 ```{python colab_type="code"}
 callbacks = [
     keras.callbacks.ModelCheckpoint(
         filepath="feature_extraction_with_data_augmentation.keras",
         save_best_only=True,
-        monitor="val_loss")
+        monitor="val_loss"), 
+    keras.callbacks.TensorBoard(
+        log_dir=TF_LOGDIR,
+    ),
 ]
 history = model.fit(
     train_dataset,
@@ -772,6 +846,11 @@ for layer in conv_base.layers[:-4]:
 
 ```
 
+```{python colab_type="code"}
+conv_base.summary()
+
+```
+
 <!-- #region colab_type="text" -->
 **Fine-tuning the model**
 <!-- #endregion -->
@@ -805,3 +884,11 @@ print(f"Test accuracy: {test_acc:.3f}")
 <!-- #region colab_type="text" -->
 ## Summary
 <!-- #endregion -->
+
+```{python}
+
+```
+
+```{python}
+
+```
