@@ -29,7 +29,7 @@ jupyter:
 # in terminal - Ub5 installed in Virtual Envs: 'Anaconda3', 'r-reticulate (Py 3.7 TF2.7 rpy2)'
 # pip install rpy2
 
-# in Jupyter notebbok
+# in Jupyter notebook
 # %load_ext rpy2.ipython
 ```
 
@@ -759,22 +759,32 @@ print("TEMPDIR: ", TEMPDIR)
 
 if 'JUPYTERHUB_USER' in os.environ:
     USER = os.environ['JUPYTERHUB_USER']
+elif 'LOGNAME' in os.environ:
+    USER = os.environ['LOGNAME']
+elif 'USER' in os.environ:
+    USER = os.environ['USER']
+elif os.getusername() != '':
+    USER = os.getusername()
 else:
     USER = '<user>'
 # print('USER:', USER)
 
 HOST=socket.gethostname()
 # print('HOST:', HOST)
+```
 
 
+```{python}
 from IPython.display import display, Markdown #, Latex
 
 display(Markdown(f"""#### Access tensorboard remotely:
 1. Create an ssh tunnel for port 6006, e.g. in Windows PowerShell: `ssh -N -f -L localhost:6006:localhost:6006 {USER}@{HOST} `
-2. browse to: http://127.0.0.1:6006/
-
+2. browse to: [http://127.0.0.1:6006/](http://127.0.0.1:6006/)
 """))
+```
+Browse to [http://127.0.0.1:6006/](http://127.0.0.1:6006/)
 
+```{python}
 # Need to clean up when tensorboard did not exit cleanly
 # !killall tensorboard
 #![ -e {TEMPDIR}/.tensorboard-info ] && ls -al {TEMPDIR}/.tensorboard-info && rm -r {TEMPDIR}/.tensorboard-info
@@ -886,7 +896,7 @@ print(f"Test accuracy: {test_acc:.3f}")
 <!-- #endregion -->
 
 ```{python}
-
+print(os.environ)
 ```
 
 ```{python}
