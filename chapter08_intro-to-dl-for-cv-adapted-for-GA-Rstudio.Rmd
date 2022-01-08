@@ -1,0 +1,1164 @@
+---
+title: 'Chapter 08: Introduction to Deep Learning for Computer Vision - adapted for Gradient Accumulation (large models & batches on small GPUs)'
+author: "Fr. Chollet"
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    theme: cerulean
+    toc: yes
+params:
+  verbose: 2
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.8.0
+  kernelspec:
+    display_name: r-reticulate (Py 3.7 TF2.7 rpy2)
+    language: python
+    name: r-reticulate
+---
+
+# This Jupyter notebook was adaptapted to be run in Rstudio IDE as an Rmarkdown document
+
+```{python}
+# in terminal - Ub5 installed in Virtual Envs: 'Anaconda3', 'r-reticulate (Py 3.7 TF2.7 rpy2)'
+# pip install rpy2
+
+# in Jupyter notebook
+# %load_ext rpy2.ipython
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(error=TRUE, warning = TRUE, message = TRUE)
+
+library(reticulate)
+vrbs <- 2 # This enables a per-epoch summary in Rstudio IDE (1 would print many lines per epoch) 
+
+if (exists("params", mode = "list")) vrbs <- params$verbose
+
+# Function to check GPU state and display the most relevant information 
+nvidia_smi <- function(show = TRUE){
+  smi <- system("nvidia-smi 2>&1", intern=TRUE)
+  start <- which(trimws(smi) == "")
+  end <- length(smi)
+  if ((0<start & start < end) %in% TRUE) {
+    if (show %in% TRUE) cat(smi[start:end], sep = "\n")
+    return(c(GPUtotalMiBusage = sum(as.numeric(sub("^.+ (\\d+)MiB \\|$"
+                                                , "\\1"
+                                                , grep("^.+ \\d+MiB \\|$", smi[start:end], value = TRUE))))))
+    
+  }
+  if (grepl("No running processes found", smi)) {
+    if (show %in% TRUE) cat(grep("No running processes found", smi, value = TRUE))
+    return(c(GPUtotalMiBusage=0))
+  }
+}
+
+```
+
+
+```{python}
+if 'r' in dir():
+    # This should be the case when this .Rmd file is run in Rstudio IDE via the reticulate package
+    pass
+else:
+    # This should be the case when this .Rmd file is run in Jupyter Notebook IDE
+    # make R objects available in python
+    import rpy2.robjects as robjects
+    r = robjects.r
+    r.vrbs = 1.0  # this amkes training progress bars visible in Jupyter Notebook
+    
+r.vrbs
+```
+
+<!-- #region colab_type="text" -->
+This is a companion notebook for the book [Deep Learning with Python, Second Edition](https://www.manning.com/books/deep-learning-with-python-second-edition?a_aid=keras&a_bid=76564dff). For readability, it only contains runnable code blocks and section titles, and omits everything else in the book: text paragraphs, figures, and pseudocode.
+
+**If you want to be able to follow what's going on, I recommend reading the notebook side by side with your copy of the book.**
+
+This notebook was generated for TensorFlow 2.6.
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+# 8. Introduction to deep learning for computer vision
+<!-- #endregion -->
+
+```{python}
+import os
+import sys
+print("os.getcwd(): " + os.getcwd())
+print("sys.prefix: ", sys.prefix)
+print("sys.exec_prefix: ", sys.exec_prefix)
+print("sys.executable: ", sys.executable)
+print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
+
+import tensorflow as tf
+print(f"TensorFlow Version: {tf.__version__}")
+
+if tf.__version__ >= "2.":
+    tf.config.list_physical_devices('GPU')
+    import tensorflow.keras
+    print(f"Keras Version: {tensorflow.keras.__version__}")
+    gpu = len(tf.config.list_physical_devices('GPU'))>0
+    print("GPU is", "available" if gpu else "NOT AVAILABLE")
+    if gpu:
+        print(tf.config.list_physical_devices('GPU'))
+```
+
+<!-- #region colab_type="text" -->
+## 8.1  Introduction to convnets
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.1  Instantiating a small convnet --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow import keras
+from tensorflow.keras import layers
+from GAmodel import GAModel
+
+inputs = keras.Input(shape=(28, 28, 1))
+x = layers.Conv2D(filters=32, kernel_size=3, activation="relu")(inputs)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=64, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=128, kernel_size=3, activation="relu")(x)
+x = layers.Flatten()(x)
+outputs = layers.Dense(10, activation="softmax")(x)
+model = GAModel(inputs=inputs, outputs=outputs, n_gradients=2)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.2 Displaying the model's summary --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model.summary()
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.3 Training the convnet on MNIST images --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow.keras.datasets import mnist
+
+(train_images, train_labels), (test_images, test_labels) = mnist.load_data()
+```
+
+
+```{python colab_type="code"}
+import numpy as np
+
+print("test_images shape:", np.shape(test_images))
+print("test_labels shape:", np.shape(test_labels))
+
+```
+
+
+```{python colab_type="code"}
+train_images = train_images.reshape((60000, 28, 28, 1))
+train_images = train_images.astype("float32") / 255
+test_images = test_images.reshape((10000, 28, 28, 1))
+test_images = test_images.astype("float32") / 255
+```
+
+```{python colab_type="code"}
+print("test_images shape:", np.shape(test_images))
+print("test_labels shape:", np.shape(test_labels))
+
+```
+
+```{python colab_type="code"}
+model.compile(optimizer="rmsprop",
+    loss="sparse_categorical_crossentropy",
+    metrics=["accuracy"])
+model.fit(train_images, train_labels, epochs=5, batch_size=64, verbose = r.vrbs)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.4  Evaluating the convnet --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+print("test_images shape:", np.shape(test_images))
+print("test_labels shape:", np.shape(test_labels))
+
+test_loss, test_acc = model.evaluate(test_images, test_labels, verbose = r.vrbs)
+print(f"Test accuracy: {test_acc:.3f}")
+
+```
+
+<!-- #region colab_type="text" -->
+### 8.1.1 The convolution operation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Understanding border effects and padding
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Understanding convolution strides
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 8.1.2  The max-pooling operation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.5 An incorrectly structured convnet missing its max-pooling layers --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+inputs = keras.Input(shape=(28, 28, 1))
+x = layers.Conv2D(filters=32, kernel_size=3, activation="relu")(inputs)
+x = layers.Conv2D(filters=64, kernel_size=3, activation="relu")(x)
+x = layers.Conv2D(filters=128, kernel_size=3, activation="relu")(x)
+x = layers.Flatten()(x)
+outputs = layers.Dense(10, activation="softmax")(x)
+model_no_max_pool = GAModel(inputs=inputs, outputs=outputs, n_gradients=4)
+
+```
+
+```{python colab_type="code"}
+model_no_max_pool.summary()
+
+```
+
+```{python}
+model_no_max_pool.compile(optimizer="rmsprop",
+    loss="sparse_categorical_crossentropy",
+    metrics=["accuracy"])
+model_no_max_pool.fit(train_images, train_labels, epochs=5, batch_size=64, verbose = r.vrbs)
+
+```
+
+<!-- #region colab_type="text" -->
+## 8.2 Training a convnet from scratch on a small dataset
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 8.2.1 The relevance of deep learning for small-data problems
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 8.2.2 Downloading the data
+<!-- #endregion -->
+
+```{python colab_type="code"}
+# upload the API’s key JSON file to a Colab
+# session by running the following code in a notebook cell:
+
+# from google.colab import files
+# files.upload()
+
+# When you run this cell, you will see a Choose Files button appear. Click it and select
+# the kaggle.json file you previously downloaded from the Kaggle website. 
+# This uploads the file to the local Colab run-time.
+```
+
+```{bash}
+#  Copy the kaggle.json file to the location expected by the kaggle API
+#  and make sure it is only readable by yourelf.
+
+# !mkdir ~/.kaggle
+# !cp kaggle.json ~/.kaggle/
+chmod 600 ~/.kaggle/kaggle.json
+
+```
+
+To be allowed to download the data from Kaggel.com, you also need to accept the terms associated with the dataset — you’ll have to go to www.kaggle.com/c/dogs-vs-cats/rules (while
+logged into your Kaggle account) and click the I Understand and Accept button. You
+only need to do this once.
+
+```{python}
+import subprocess
+import sys
+
+# Calling [sys.executable, '-m', 'pip', 'install', name] 
+# rather than ['pip', 'install', name]
+# is making sure to get the "right" pip (i.e. you install in current virtual environment)
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    
+install("kaggle")
+
+```
+
+```{bash}
+which kaggle
+
+#  You can now download the data:
+
+[ ! -e dogs-vs-cats.zip ] && kaggle competitions download -c dogs-vs-cats  || echo "Already downloaded: dogs-vs-cats.zip"
+
+```
+
+```{bash}
+ unzip -l dogs-vs-cats.zip
+ unzip -qo dogs-vs-cats.zip
+
+# uncompress the training data:
+ unzip -qo train.zip
+ 
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.6 Copying images to training, validation, and test directories --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import os, shutil, pathlib
+
+original_dir = pathlib.Path("train")
+new_base_dir = pathlib.Path("cats_vs_dogs_small")
+
+# Utility function to copy cat (and dog) images from index 
+# start_index to index end_index to the subdirectory 
+# new_base_dir/{subset_name}/cat (and /dog). The 
+# "subset_name" will be either "train", "validation", or "test"
+def make_subset(subset_name, start_index, end_index):
+    for category in ("cat", "dog"):
+        dir = new_base_dir / subset_name / category
+        os.makedirs(dir, exist_ok=True)
+        fnames = [f"{category}.{i}.jpg" for i in range(start_index, end_index)]
+        for fname in fnames:
+            shutil.copyfile(src=original_dir / fname,
+                            dst=dir / fname)
+
+make_subset("train", start_index=0, end_index=1000)
+make_subset("validation", start_index=1000, end_index=1500)
+make_subset("test", start_index=1500, end_index=2500)
+
+```
+
+<!-- #region colab_type="text" -->
+### 8.2.3 Building the model
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.7 Instantiating a small convnet for dogs vs. cats classification --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow import keras
+from tensorflow.keras import layers
+from GAmodel import GAModel
+
+n_gradients=2
+
+inputs = keras.Input(shape=(180, 180, 3)) # The model expects RGB images of size 180 × 180
+x = layers.Rescaling(1./255)(inputs) # Rescale inputs to the [0, 1] range by dividing them by 255.
+x = layers.Conv2D(filters=32, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=64, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=128, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=256, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=256, kernel_size=3, activation="relu")(x)
+x = layers.Flatten()(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+model = GAModel(inputs=inputs, outputs=outputs, n_gradients = n_gradients)
+
+```
+
+```{python}
+for v in model.gradient_accumulation:
+    print(v.name, v.shape)
+
+```
+
+Let’s look at how the dimensions of the feature maps change with every successive layer:
+
+```{python colab_type="code"}
+model.summary()
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.8 Configuring the model for training --**
+
+Check out table 6.1 in chapter 6 for a cheat sheet on which loss function to use in various situations.  Because we ended the model with a single sigmoid unit, we’ll use binary cross-entropy.
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model.compile(loss="binary_crossentropy",
+              optimizer="rmsprop",
+              metrics=["accuracy"])
+```
+
+<!-- #region colab_type="text" -->
+### 8.2.4 Data preprocessing
+
+Currently, the data sits on a drive as JPEG files, so the steps for getting it into the model are roughly as follows:
+
+1. Read the picture files.
+2. Decode the JPEG content to RGB grids of pixels.
+3. Convert these into floating-point tensors.
+4. Resize them to a shared size (we’ll use 180 × 180).
+5. Pack them into batches (we’ll use batches of 32 images).
+
+The utility function `image_dataset_from_directory()` lets you quickly set up a data pipeline that  automatically turns image files on disk into batches of preprocessed tensors. It creates and returns a `tf.data.Dataset` object configured to read these files, shuffle them, decode them to
+tensors, resize them to a shared size, and pack them into batches.
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.9 Using `image_dataset_from_directory` to read images --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow.keras.utils import image_dataset_from_directory
+
+print("train dataset:")
+train_dataset = image_dataset_from_directory(
+    new_base_dir / "train",
+    image_size=(180, 180),
+    batch_size=32)
+
+print("validation dataset:")
+validation_dataset = image_dataset_from_directory(
+    new_base_dir / "validation",
+    image_size=(180, 180),
+    batch_size=32)
+
+print("test dataset")
+test_dataset = image_dataset_from_directory(
+    new_base_dir / "test",
+    image_size=(180, 180),
+    batch_size=32)
+
+```
+
+#### === Understanding TensorFlow `Dataset` objects ===
+TensorFlow makes available the `tf.data` API to create efficient input pipelines for
+machine learning models. Its core class is `tf.data.Dataset`.
+
+A `Dataset` object is an *iterator*: you can use it in a for loop. It will typically return
+batches of input data and labels. You can pass a `Dataset` object directly to the `fit()`
+method of a Keras model.
+
+The `Dataset` class handles many key features that would otherwise be cumbersome
+to implement yourself — in particular, *asynchronous data prefetching* (preprocessing
+the next batch of data while the previous one is being handled by the model, which
+keeps execution flowing without interruptions).
+
+The `Dataset` class also exposes a functional-style API for modifying datasets. Here’s
+a quick example: let’s create a `Dataset` instance from a NumPy array of random numbers. We’ll consider 1,000 samples, where each sample is a vector of size 16:
+
+```{python colab_type="code"}
+import numpy as np
+import tensorflow as tf
+
+random_numbers = np.random.normal(size=(1000, 16))
+
+# The from_tensor_slices() class method can be used to create a Dataset from a NumPy array,
+# or a tuple or dict of NumPy arrays.
+dataset = tf.data.Dataset.from_tensor_slices(random_numbers)
+
+```
+
+```{python colab_type="code"}
+# At first, our dataset just yields single samples:
+for i, element in enumerate(dataset):
+    print(element.shape)
+    if i >= 2:
+        break
+
+```
+
+```{python colab_type="code"}
+# We can use the .batch() method to batch the data:
+batched_dataset = dataset.batch(32)
+for i, element in enumerate(batched_dataset):
+    print(element.shape)
+    if i >= 2:
+        break
+
+```
+
+More broadly, we have access to a range of useful dataset methods, such as:
+
+ * `.shuffle(buffer_size)` — Shuffles elements within a buffer
+ * `.prefetch(buffer_size)`— Prefetches a buffer of elements in GPU memory to achieve better device utilization.
+ * `.map(callable)` — Applies an arbitrary transformation to each element of the dataset (the function callable, which expects to take as input a single element yielded by the dataset)
+ 
+The `.map()` method, in particular, is one that you will use often. 
+Here’s an example.
+We’ll use it to reshape the elements in our toy dataset from shape (16,) to shape (4, 4):
+
+```{python colab_type="code"}
+reshaped_dataset = dataset.map(lambda x: tf.reshape(x, (4, 4)))
+for i, element in enumerate(reshaped_dataset):
+    print(element.shape)
+    if i >= 2:
+        break
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.10 Displaying the shapes of the data and labels yielded by the `Dataset` --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+for data_batch, labels_batch in train_dataset:
+    print("data batch shape:", data_batch.shape)
+    print("labels batch shape:", labels_batch.shape)
+    break
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.11 Fitting the model using a `Dataset` --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+callbacks = [
+    keras.callbacks.ModelCheckpoint(
+        #filepath="convnet_from_scratch.keras", # file extension .keras or .h5 switches model.save() to use keras (h5) format - see https://keras.io/guides/serialization_and_saving/
+                                                # This creates a single HDF5 file containing the model's architecture, weights values, and compile() information. 
+                                                # It is a light-weight alternative to SavedModel.
+        filepath="convnet_from_scratch.tf",     # With other file extensions, model.save() uses the newer TensorFlow SavedModel format  saves the model architecture, weights, 
+                                                # and the traced Tensorflow subgraphs of the call functions into a folder. 
+                                                # This enables Keras to restore both built-in layers as well as custom objects.
+        save_best_only=True, 
+        save_weights_only=False,
+        #options = tf.saved_model.SaveOptions(
+        #  experimental_variable_policy=
+        #    tf.saved_model.experimental.VariablePolicy.SAVE_VARIABLE_DEVICES),
+        monitor="val_loss")
+]
+
+history = model.fit(
+    train_dataset,
+    epochs=30,
+    validation_data=validation_dataset,
+    callbacks=callbacks,
+    verbose=r.vrbs)
+
+```
+
+<!-- #region colab_type="text" -->
+Let’s plot the loss and accuracy of the model over the training and validation data during training:
+
+**-- Listing 8.12 Displaying curves of loss and accuracy during training --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import matplotlib.pyplot as plt
+
+accuracy = history.history["accuracy"]
+val_accuracy = history.history["val_accuracy"]
+loss = history.history["loss"]
+val_loss = history.history["val_loss"]
+epochs = range(1, len(accuracy) + 1)
+plt.plot(epochs, accuracy, "bo", label="Training accuracy")
+plt.plot(epochs, val_accuracy, "b", label="Validation accuracy")
+plt.title("Training and validation accuracy")
+plt.legend()
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training loss")
+plt.plot(epochs, val_loss, "b", label="Validation loss")
+plt.title("Training and validation loss")
+plt.legend()
+plt.show()
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.13 Evaluating the model on the test set --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+# test_model = keras.models.load_model("convnet_from_scratch.keras")
+test_model = keras.models.load_model("convnet_from_scratch.tf")
+```
+
+```{python colab_type="code"}
+# # Retrieve the config
+# config = model.get_config()
+
+# At loading time, register the custom objects with a `custom_object_scope`:
+# custom_objects = {"GAModel": GAModel}
+# with keras.utils.custom_object_scope(custom_objects):
+#    test_model = keras.Model.from_config(config)
+```
+
+```{python colab_type="code"}
+test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
+print(f"Test accuracy: {test_acc:.3f}")
+```
+
+<!-- #region colab_type="text" -->
+### 8.2.5 Using data augmentation
+
+In addition to dropout and weight decay (L2 regularization), **data augmentation** is another technique to reduce overfitting, that is specific to computer vision and used almost universally when processing images with deep learning models. 
+
+Note: random image augmentation layers, just like Dropout, are inactive during inference (when we call `predict()` or `evaluate()`).
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.14 Define a data augmentation stage to add to an image model --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+data_augmentation = keras.Sequential(
+    [
+        layers.RandomFlip("horizontal"), # Applies horizontal flipping to a random 50% of the images 
+        layers.RandomRotation(0.1),      # Rotates the input images by a random value in the range
+                                         # [–10%, +10%] (expressed as fractions of a full circle)
+        layers.RandomZoom(0.2),          # Zooms in or out of the image by a random factor 
+                                         # in the range [-20%, +20%]
+    ]
+)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.15  Displaying some randomly augmented training images --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+plt.figure(figsize=(10, 10))
+for images, _ in train_dataset.take(1):  # We can use take(N) to only sample N batches from the dataset. 
+                                         # This is equivalent to inserting a break in the loop after the Nth batch.
+    for i in range(9):
+        # Apply the augmentation stage to the batch of images.
+        augmented_images = data_augmentation(images)
+        ax = plt.subplot(3, 3, i + 1)
+        plt.imshow(augmented_images[0].numpy().astype("uint8"))  # Display the first image in the output batch.
+                                                                 # For each of the nine iterations, this is a 
+                                                                 # different augmentation of the same image.
+        plt.axis("off")
+    plt.show()
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.16 Defining a new convnet that includes image augmentation and dropout --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+inputs = keras.Input(shape=(180, 180, 3))
+x = data_augmentation(inputs)
+x = layers.Rescaling(1./255)(x)
+x = layers.Conv2D(filters=32, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=64, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=128, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=256, kernel_size=3, activation="relu")(x)
+x = layers.MaxPooling2D(pool_size=2)(x)
+x = layers.Conv2D(filters=256, kernel_size=3, activation="relu")(x)
+x = layers.Flatten()(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+
+# model = keras.Model(inputs=inputs, outputs=outputs)
+model = GAModel(inputs=inputs, outputs=outputs, n_gradients=2)
+
+model.compile(loss="binary_crossentropy",
+              optimizer="rmsprop",
+              metrics=["accuracy"])
+
+model.summary()
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.17 Training the regularized convnet --**
+
+Because we expect overfitting to occur much later during training, we will train for three times as many
+epochs — one hundred.
+<!-- #endregion -->
+
+```{python colab_type="code"}
+callbacks = [
+    keras.callbacks.ModelCheckpoint(
+#         filepath="convnet_from_scratch_with_augmentation.keras",
+        filepath="convnet_from_scratch_with_augmentation.tf",
+        save_best_only=True,
+        monitor="val_loss")
+]
+
+history = model.fit(
+    train_dataset,
+    epochs=100,
+    validation_data=validation_dataset,
+    callbacks=callbacks, verbose = r.vrbs)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.18 Evaluating the model on the test set --**
+
+Note we will re-use the saved model for some experiments in the next chapter.
+<!-- #endregion -->
+
+```{python colab_type="code"}
+test_model = keras.models.load_model(
+    "convnet_from_scratch_with_augmentation.tf")
+test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
+print(f"Test accuracy: {test_acc:.3f}")
+
+```
+
+<!-- #region colab_type="text" -->
+## 8.3 Leveraging a pretrained model
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 8.3.1 Feature extraction with a pretrained model
+
+In this case, let’s consider a large convnet trained on the ImageNet dataset (1.4 million labeled images and 1,000 different classes). ImageNet contains many animal classes, including different species of cats and dogs, and you can thus expect it to perform well on the dogs-versus-cats classification problem.
+
+We’ll use the VGG16 architecture, developed by [Karen Simonyan and Andrew Zisserman in 2014](https://arxiv.org/abs/1409.1556).
+Its architecture is similar to what you’re already familiar with, and it’s easy to understand without introducing any new concepts.
+
+The VGG16 model, among others, comes prepackaged with Keras. You can import it from [the `keras.applications` module](https://keras.io/api/applications/). Many other image-classification models (all pretrained on the ImageNet dataset) are available as part of `keras.applications`:
+
+ * Xception
+ * ResNet
+ * MobileNet
+ * EfficientNet
+ * DenseNet
+
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.19 Instantiating the VGG16 convolutional base --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+conv_base = keras.applications.vgg16.VGG16(
+    weights="imagenet",         # weight checkpoint from which to initialize the model.
+    include_top=False,          # whether to include the densely connected classifier on top of the network
+    input_shape=(180, 180, 3))  # purely optional - we pass it so that we can visualize the size of the feature 
+                                # maps and pooling layers.
+    
+```
+
+```{python colab_type="code"}
+conv_base.summary()
+
+```
+
+<!-- #region colab_type="text" -->
+#### Fast feature extraction without data augmentation
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.20 Extracting the VGG16 features and corresponding labels --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import numpy as np
+
+def get_features_and_labels(dataset):
+    all_features = []
+    all_labels = []
+    # Note: predict() only expects images, not labels, but our current dataset yields
+    # batches that contain both images and their labels.
+    for images, labels in dataset:
+        # Note: the VGG16 model expects inputs that are preprocessed with the function 
+        # keras.applications.vgg16.preprocess_input, which scales pixel values to an appropriate range
+        preprocessed_images = keras.applications.vgg16.preprocess_input(images)
+        features = conv_base.predict(preprocessed_images)
+        all_features.append(features)
+        all_labels.append(labels)
+    return np.concatenate(all_features), np.concatenate(all_labels)
+
+train_features, train_labels =  get_features_and_labels(train_dataset)
+val_features, val_labels =  get_features_and_labels(validation_dataset)
+test_features, test_labels =  get_features_and_labels(test_dataset)
+
+```
+
+```{python colab_type="code"}
+train_features.shape
+
+```
+
+<!-- #region colab_type="text" -->
+**Defining and training the densely connected classifier**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+inputs = keras.Input(shape=(5, 5, 512))
+x = layers.Flatten()(inputs)  # Note the use of the Flatten layer before passing the features to a Dense layer
+x = layers.Dense(256)(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+# model = keras.Model(inputs, outputs)
+model = GAModel(inputs, outputs, n_gradients=4)
+
+model.compile(loss="binary_crossentropy",
+              optimizer="rmsprop",
+              metrics=["accuracy"])
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint(
+#       filepath="feature_extraction.keras",
+      filepath="feature_extraction.tf",
+      save_best_only=True,
+      monitor="val_loss")
+]
+history = model.fit(
+    train_features, train_labels,
+    epochs=20,
+    validation_data=(val_features, val_labels),
+    callbacks=callbacks, verbose = r.vrbs)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.22 Plotting the results --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import matplotlib.pyplot as plt
+
+acc = history.history["accuracy"]
+val_acc = history.history["val_accuracy"]
+loss = history.history["loss"]
+val_loss = history.history["val_loss"]
+epochs = range(1, len(acc) + 1)
+plt.plot(epochs, acc, "bo", label="Training accuracy")
+plt.plot(epochs, val_acc, "b", label="Validation accuracy")
+plt.title("Training and validation accuracy")
+plt.legend()
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training loss")
+plt.plot(epochs, val_loss, "b", label="Validation loss")
+plt.title("Training and validation loss")
+plt.legend()
+plt.show()
+
+```
+
+<!-- #region colab_type="text" -->
+The plots also indicate that we’re overfitting almost from the start — despite using dropout with a fairly large rate. That’s because this technique doesn’t use data augmentation, which is essential for preventing overfitting with small image datasets.
+
+#### Feature extraction together with data augmentation
+
+NOTE: This technique is expensive enough that you should only attempt it if you have access to a GPU
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.23 Instantiating and freezing the VGG16 convolutional base --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+conv_base  = keras.applications.vgg16.VGG16(
+    weights="imagenet",
+    include_top=False)
+conv_base.trainable = False
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.24 Printing the list of trainable weights before and after freezing --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+conv_base.trainable = True
+print("This is the number of trainable weights "
+      "before freezing the conv base:", len(conv_base.trainable_weights))
+
+```
+
+```{python colab_type="code"}
+conv_base.trainable = False
+print("This is the number of trainable weights "
+      "after freezing the conv base:", len(conv_base.trainable_weights))
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.25 Adding a data augmentation stage and a classifier to the convolutional base --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+def data_augmentation(x): 
+    x = layers.RandomFlip("horizontal")(x)
+    x = layers.RandomRotation(0.1)(x)
+    x = layers.RandomZoom(0.2)(x)
+    return x
+
+inputs = keras.Input(shape=(180, 180, 3))
+x = data_augmentation(inputs)
+x = keras.applications.vgg16.preprocess_input(x)
+# for layer in conv_base.layers:
+#     x = layer(x)
+x = conv_base(x)
+x = layers.Flatten()(x)
+x = layers.Dense(256)(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+# model = keras.Model(inputs, outputs)
+model = GAModel(inputs, outputs, n_gradients=4)
+
+# If you ever modify weight trainability after compilation, you
+# should then recompile the model, or these changes will be ignored.
+model.compile(loss="binary_crossentropy",
+              optimizer="rmsprop",
+              metrics=["accuracy"])
+
+```
+
+```{python}
+model.summary()
+```
+
+```{python}
+import os
+import sys
+import tempfile
+import socket
+
+tb_exec = (os.path.join(os.path.dirname(sys.executable), "tensorboard"))
+if os.path.exists(tb_exec):
+    os.environ["TENSORBOARD_BINARY"] = tb_exec
+    
+TF_LOGDIR = "./feature_extraction_with_data_augmentation_log_dir"
+
+TEMPDIR = tempfile.gettempdir()
+print("TEMPDIR: ", TEMPDIR)
+
+if 'JUPYTERHUB_USER' in os.environ:
+    USER = os.environ['JUPYTERHUB_USER']
+elif 'LOGNAME' in os.environ:
+    USER = os.environ['LOGNAME']
+elif 'USER' in os.environ:
+    USER = os.environ['USER']
+elif os.getusername() != '':
+    USER = os.getusername()
+else:
+    USER = '<user>'
+# print('USER:', USER)
+
+HOST=socket.gethostname()
+# print('HOST:', HOST)
+```
+
+
+```{python}
+from IPython.display import display, Markdown #, Latex
+
+display(Markdown(f"""#### Access tensorboard remotely:
+1. Create an ssh tunnel for port 6006, e.g. in Windows PowerShell: `ssh -N -f -L localhost:6006:localhost:6006 {USER}@{HOST} `
+2. browse to: [http://127.0.0.1:6006/](http://127.0.0.1:6006/)
+"""))
+```
+Browse to [http://127.0.0.1:6006/](http://127.0.0.1:6006/)
+
+```{python}
+# Need to clean up when tensorboard did not exit cleanly
+# !killall tensorboard
+#![ -e {TEMPDIR}/.tensorboard-info ] && ls -al {TEMPDIR}/.tensorboard-info && rm -r {TEMPDIR}/.tensorboard-info
+![ -e {TEMPDIR}/.tensorboard-info ] &&  rm -r {TEMPDIR}/.tensorboard-info
+
+# #%load_ext tensorboard
+# #%reload_ext tensorboard
+# #%tensorboard --logdir {TF_LOGDIR} --host 127.0.0.1 --port 6006
+# #%tensorboard --logdir {TF_LOGDIR} --host ub5 --port 6006
+#!{tb_exec} --logdir {TF_LOGDIR} --host 127.0.0.1 --port 6006 &   # OSError: Background processes not supported.
+
+import subprocess
+subprocess.Popen([tb_exec, "--logdir", TF_LOGDIR, "--host", "127.0.0.1", "--port", "6006"])
+
+import time
+time.sleep(3)
+
+from tensorboard import notebook
+notebook.list() # View open TensorBoard instances
+```
+
+```{python colab_type="code"}
+callbacks = [
+    keras.callbacks.ModelCheckpoint(
+#         filepath="feature_extraction_with_data_augmentation.keras",
+        filepath="feature_extraction_with_data_augmentation.tf",
+        save_best_only=True,
+        monitor="val_loss"), 
+    keras.callbacks.TensorBoard(
+        log_dir=TF_LOGDIR,
+    ),
+]
+history = model.fit(
+    train_dataset,
+    epochs=50,
+    validation_data=validation_dataset,
+    callbacks=callbacks, verbose = r.vrbs)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.26 Evaluating the model on the test set --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+test_model = keras.models.load_model(
+    "feature_extraction_with_data_augmentation.tf")
+test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
+print(f"Test accuracy: {test_acc:.3f}")
+
+```
+
+<!-- #region colab_type="text" -->
+### 8.3.2 Fine-tuning a pretrained model
+
+It’s only possible to fine-tune the top layers of the convolutional base once the classifier on top has already been trained. If the classifier isn’t already trained, the error signal propagating through the network during training will be too large, and the representations previously learned by the layers being fine-tuned will be destroyed. 
+
+Thus the steps for fine-tuning a network are as follows:
+
+ 1. Add our custom network on top of an already-trained base network.
+ 2. Freeze the base network.
+ 3. Train the part we added.
+ 4. Unfreeze some layers in the base network. (Note that you should not unfreeze “batch normalization” layers, which are not relevant here since there are no such layers in VGG16. Batch normalization and its impact on finetuning is explained in the next chapter.)
+ 5. Jointly train both these layers and the part we added.
+ 
+<!-- #endregion -->
+
+```{python colab_type="code"}
+conv_base.summary()
+
+```
+
+```{python}
+model.summary()
+```
+
+```{python}
+test_model.summary()
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 8.27 Freezing all layers until the fourth from the last --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+conv_base.trainable = True
+for layer in conv_base.layers[:-4]:
+    layer.trainable = False
+
+```
+
+```{python colab_type="code"}
+conv_base.summary()
+
+```
+
+```{python}
+model.summary()
+```
+
+```{python}
+test_model.summary()
+```
+
+```{python}
+def data_augmentation(x): 
+    x = layers.RandomFlip("horizontal")(x)
+    x = layers.RandomRotation(0.1)(x)
+    x = layers.RandomZoom(0.2)(x)
+    return x
+
+inputs = keras.Input(shape=(180, 180, 3))
+x = data_augmentation(inputs)
+x = keras.applications.vgg16.preprocess_input(x)
+for layer in conv_base.layers:
+    x = layer(x)
+# x = conv_base(x)
+x = layers.Flatten()(x)
+x = layers.Dense(256)(x)
+x = layers.Dropout(0.5)(x)
+outputs = layers.Dense(1, activation="sigmoid")(x)
+model = keras.Model(inputs, outputs)
+# model = GAModel(inputs, outputs, n_gradients=4)
+
+# If you ever modify weight trainability after compilation, you
+# should then recompile the model, or these changes will be ignored.
+
+
+```
+
+```{python}
+def get_output_shape(layer):
+    try:
+        output_shape = layer.output_shape
+    except AttributeError:
+        output_shape = 'multiple'
+    except RuntimeError:  # output_shape unknown in Eager mode.
+        output_shape = '?'
+    return output_shape
+
+for i, layer in enumerate(model.layers):
+    print(i, layer.name, layer.__class__.__name__, get_output_shape(layer), layer.trainable, layer.count_params())
+    if layer.name == "vgg16":
+        for l in layer:
+            print(l.name, l.__class__.__name__, get_output_shape(l), l.trainable, l.count_params())
+```
+
+```{python}
+model.summary()
+```
+
+<!-- #region colab_type="text" -->
+Now we can begin fine-tuning the model. We’ll do this with the RMSprop optimizer,
+using a very low learning rate. The reason for using a low learning rate is that we want to
+limit the magnitude of the modifications we make to the representations of the three
+layers we’re fine-tuning. Updates that are too large may harm these representations.
+
+**-- Listing 8.28 Fine-tuning the model --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model.compile(loss="binary_crossentropy",
+              optimizer=keras.optimizers.RMSprop(learning_rate=1e-5),
+              metrics=["accuracy"])
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint(
+        filepath="fine_tuning.tf",
+#         filepath="fine_tuning.keras",
+        save_best_only=True,
+        monitor="val_loss")
+]
+history = model.fit(
+    train_dataset,
+    epochs=30,
+    validation_data=validation_dataset,
+    callbacks=callbacks, verbose = r.vrbs)
+
+```
+
+```{python colab_type="code"}
+# model = keras.models.load_model("fine_tuning.keras")
+model = keras.models.load_model("fine_tuning.tf")
+test_loss, test_acc = model.evaluate(test_dataset, verbose = r.vrbs)
+print(f"Test accuracy: {test_acc:.3f}")
+
+```
+
+<!-- #region colab_type="text" -->
+## Summary
+<!-- #endregion -->
+
+```{python}
+print(os.environ)
+```
+
+```{python}
+
+```
