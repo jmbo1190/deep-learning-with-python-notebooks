@@ -21,6 +21,7 @@ This notebook was generated for TensorFlow 2.6.
 <!-- #endregion -->
 
 ```{python}
+# Get current python environment - depends on selected kernel
 import os
 import sys
 print("os.getcwd(): " + os.getcwd())
@@ -29,6 +30,7 @@ print("sys.exec_prefix: ", sys.exec_prefix)
 print("sys.executable: ", sys.executable)
 print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
 
+# Get tensorflow version and list (initialize) GPU devices if any
 import tensorflow as tf
 print(f"TensorFlow Version: {tf.__version__}")
 
@@ -45,6 +47,31 @@ if tf.__version__ >= "2.":
         print(tf.config.list_physical_devices('GPU'))
         
 
+```
+
+```{python}
+# Get installed package versions in virtual environment associated to Jupyter kernel
+import pkg_resources
+
+pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+
+for k in sorted(pkgs.keys()):
+    print(k, pkgs.get(k))
+
+```
+
+```{python}
+# from pip._internal.operations.freeze import freeze
+# for requirement in freeze(local_only=True):
+#     print(requirement)
+```
+
+```{python}
+# from pkgutil import iter_modules
+
+# for m in iter_modules():
+#     if m.ispkg:
+#         print(m.name)
 ```
 
 <!-- #region colab_type="text" -->
