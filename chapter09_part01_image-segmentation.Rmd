@@ -91,12 +91,19 @@ Download and uncompress our dataset:
 ```{python}
 import subprocess
 import sys
+import pkg_resources
+
 
 # Calling [sys.executable, '-m', 'pip', 'install', name] 
 # rather than ['pip', 'install', name]
 # is making sure to get the "right" pip (i.e. you install in current virtual environment)
 def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    # Get installed package versions in virtual environment associated to Jupyter kernel
+    pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+    if package not in pkgs.keys():
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    else:
+        print(f"Package {package} version {pkgs.get(package)} is already installed")
     
 install("ipython-autotime")
 # %load_ext autotime
@@ -318,6 +325,27 @@ plt.plot(epochs, val_loss, "b", label="Validation loss")
 plt.ylim(0.15,1.15)
 plt.title("Training and validation loss")
 plt.legend()
+```
+
+```{python}
+def smooth_curve(points, factor=0.8):
+    smoothed_points = []
+    for point in points:
+        if smoothed_points:
+            previous = smoothed_points[-1]
+            smoothed_points.append(previous * factor + point * (1 - factor))
+        else:
+            smoothed_points.append(point)
+    return smoothed_points
+
+plt.figure()
+
+plt.plot(epochs, smooth_curve(loss), 'bo', label='Smoothed training loss')
+plt.plot(epochs, smooth_curve(val_loss), 'b', label='Smoothed validation loss')
+plt.title('Training and validation loss')
+plt.legend()
+
+plt.show()
 ```
 
 *we start overfitting midway, around epoch 25.*
