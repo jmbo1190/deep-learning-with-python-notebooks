@@ -283,15 +283,23 @@ only need to do this once.
 ```{python}
 import subprocess
 import sys
+import pkg_resources
+
 
 # Calling [sys.executable, '-m', 'pip', 'install', name] 
 # rather than ['pip', 'install', name]
 # is making sure to get the "right" pip (i.e. you install in current virtual environment)
 def install(package):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    # Get installed package versions in virtual environment associated to Jupyter kernel
+    pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+    if package not in pkgs.keys():
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    else:
+        print(f"Package {package} version {pkgs.get(package)} is already installed")
     
 install("kaggle")
-
+install("ipython-autotime")
+# %load_ext autotime
 ```
 
 ```{bash}
