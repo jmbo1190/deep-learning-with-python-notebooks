@@ -91,14 +91,29 @@ This notebook was generated for TensorFlow 2.6.
 ```{python}
 import os
 import sys
+import inspect
+
 print("os.getcwd(): " + os.getcwd())
 print("sys.prefix: ", sys.prefix)
 print("sys.exec_prefix: ", sys.exec_prefix)
 print("sys.executable: ", sys.executable)
 print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
 
+print("inspect.getabsfile(inspect.currentframe()) :", inspect.getabsfile(inspect.currentframe()) )
+
 import tensorflow as tf
 print(f"TensorFlow Version: {tf.__version__}")
+print("inspect.getabsfile(tf) :", inspect.getabsfile(tf) )
+        
+from tensorflow import keras
+print(f"Keras Version: {keras.__version__}")
+print("inspect.getabsfile(keras) :", inspect.getabsfile(keras) )
+
+from tensorflow.keras import layers
+print("inspect.getabsfile(layers) :", inspect.getabsfile(layers) )
+
+from GAmodel import GAModel
+print("inspect.getabsfile(GAModel) :", inspect.getabsfile(GAModel) )
 
 if tf.__version__ >= "2.":
     tf.config.list_physical_devices('GPU')
@@ -108,6 +123,13 @@ if tf.__version__ >= "2.":
     print("GPU is", "available" if gpu else "NOT AVAILABLE")
     if gpu:
         print(tf.config.list_physical_devices('GPU'))
+
+```
+
+```{python}
+from keras.engine.training import Model
+print("inspect.getabsfile(Model) :", inspect.getabsfile(Model) )
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -792,6 +814,37 @@ test_features, test_labels =  get_features_and_labels(test_dataset)
 
 ```
 
+```{python}
+def get_output_shape(layer):
+    """ Return the output shape of a layer, if applicable """
+    try:
+        output_shape = layer.output_shape
+    except AttributeError:
+        output_shape = 'multiple'
+    except RuntimeError:  # output_shape unknown in Eager mode.
+        output_shape = '?'
+    return output_shape
+
+def model_layers_summary(model, prefix=""):
+    """ Recursively print the index, name, type, output shape, trainability and number of parameters of all layers in a model. """
+    for i, layer in enumerate(model.layers):
+        print(prefix+str(i), layer.name, '('+layer.__class__.__module__+"."+layer.__class__.__qualname__+')', 'shape:', get_output_shape(layer), 'trainable:', layer.trainable, 'params:', layer.count_params())
+        if hasattr(layer, 'layers'):
+            model_layers(layer, prefix=prefix+"   +-> "+str(i)+".")
+```
+
+```{python}
+def all_weight_equal(model1, model2):
+    """ Check that two models have the same weights """
+    all_equal = (len(model1.weights) == len(model2.weights))
+    for i, (w1, w2) in enumerate(zip(model1.weights, model2.weights)):
+        all_equal = all_equal and bool(tf.reduce_all(tf.equal(w1, w2)))
+        #print(i, bool(tf.reduce_all(tf.equal(w1, w2))))
+    #print("all_equal:", all_equal)
+    return all_equal
+
+```
+
 ```{python colab_type="code"}
 train_features.shape
 
@@ -892,6 +945,19 @@ print("This is the number of trainable weights "
 
 ```
 
+```{python}
+from copy import deepcopy
+
+conv_base_deepcopy = deepcopy(conv_base)
+
+print("conv_base is conv_base:", conv_base is conv_base)
+print("conv_base_deepcopy is conv_base:", conv_base_deepcopy is conv_base)
+
+print("conv_base_deepcopy == conv_base:", conv_base_deepcopy == conv_base)
+
+
+```
+
 <!-- #region colab_type="text" -->
 **-- Listing 8.25 Adding a data augmentation stage and a classifier to the convolutional base --**
 <!-- #endregion -->
@@ -906,8 +972,6 @@ def data_augmentation(x):
 inputs = keras.Input(shape=(180, 180, 3))
 x = data_augmentation(inputs)
 x = keras.applications.vgg16.preprocess_input(x)
-# for layer in conv_base.layers:
-#     x = layer(x)
 x = conv_base(x)
 x = layers.Flatten()(x)
 x = layers.Dense(256)(x)
@@ -926,6 +990,18 @@ model.compile(loss="binary_crossentropy",
 
 ```{python}
 model.summary()
+```
+
+```{python}
+all_weight_equal(conv_base_deepcopy, conv_base)
+```
+
+```{python}
+all_weight_equal(model.get_layer("vgg16"), conv_base)
+```
+
+```{python}
+all_weight_equal(model.get_layer("vgg16"), conv_base_deepcopy)
 ```
 
 ```{python}
@@ -1003,12 +1079,21 @@ callbacks = [
         log_dir=TF_LOGDIR,
     ),
 ]
+
 history = model.fit(
     train_dataset,
     epochs=50,
     validation_data=validation_dataset,
     callbacks=callbacks, verbose = r.vrbs)
 
+```
+
+```{python}
+all_weight_equal(model.get_layer("vgg16"), conv_base)
+```
+
+```{python}
+all_weight_equal(model.get_layer("vgg16"), conv_base_deepcopy)
 ```
 
 <!-- #region colab_type="text" -->
@@ -1021,6 +1106,10 @@ test_model = keras.models.load_model(
 test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
 
+```
+
+```{python}
+all_weight_equal(test_model.get_layer("vgg16"), conv_base)
 ```
 
 <!-- #region colab_type="text" -->
@@ -1063,6 +1152,23 @@ for layer in conv_base.layers[:-4]:
 ```
 
 ```{python colab_type="code"}
+conv_base.trainable = False
+for layer in conv_base.layers[-4:]:
+    if isinstance(x, keras.layers.Conv2D):
+        layer.trainable = True
+
+
+```
+
+```{python}
+all_weight_equal(model.get_layer("vgg16"), conv_base)
+```
+
+```{python}
+all_weight_equal(model.get_layer("vgg16"), conv_base_deepcopy)
+```
+
+```{python colab_type="code"}
 conv_base.summary()
 
 ```
@@ -1072,50 +1178,31 @@ model.summary()
 ```
 
 ```{python}
+# model.summary(expand_nested=True)    # option not yet available
+
+model.get_layer("vgg16").summary()
+
+print('\nCheck if `model.get_layer("vgg16")` and `conv_base` reference or point to the same object (have same identity):',
+     model.get_layer("vgg16") is conv_base,
+      "\n",
+     )
+
+```
+
+```{python}
 test_model.summary()
 ```
 
 ```{python}
-def data_augmentation(x): 
-    x = layers.RandomFlip("horizontal")(x)
-    x = layers.RandomRotation(0.1)(x)
-    x = layers.RandomZoom(0.2)(x)
-    return x
-
-inputs = keras.Input(shape=(180, 180, 3))
-x = data_augmentation(inputs)
-x = keras.applications.vgg16.preprocess_input(x)
-for layer in conv_base.layers:
-    x = layer(x)
-# x = conv_base(x)
-x = layers.Flatten()(x)
-x = layers.Dense(256)(x)
-x = layers.Dropout(0.5)(x)
-outputs = layers.Dense(1, activation="sigmoid")(x)
-model = keras.Model(inputs, outputs)
-# model = GAModel(inputs, outputs, n_gradients=4)
-
-# If you ever modify weight trainability after compilation, you
-# should then recompile the model, or these changes will be ignored.
-
-
+all_weight_equal(test_model.get_layer("vgg16"), conv_base)
 ```
 
 ```{python}
-def get_output_shape(layer):
-    try:
-        output_shape = layer.output_shape
-    except AttributeError:
-        output_shape = 'multiple'
-    except RuntimeError:  # output_shape unknown in Eager mode.
-        output_shape = '?'
-    return output_shape
+test_model.get_layer("vgg16").summary()
+```
 
-for i, layer in enumerate(model.layers):
-    print(i, layer.name, layer.__class__.__name__, get_output_shape(layer), layer.trainable, layer.count_params())
-    if layer.name == "vgg16":
-        for l in layer:
-            print(l.name, l.__class__.__name__, get_output_shape(l), l.trainable, l.count_params())
+```{python}
+model_layers_summary(model)
 ```
 
 ```{python}
@@ -1132,6 +1219,8 @@ layers we’re fine-tuning. Updates that are too large may harm these representa
 <!-- #endregion -->
 
 ```{python colab_type="code"}
+# After changing layers weights trainability a model must be (re-)compiled for the change to apply
+# For fine-tuning a very low learning rate must be used too
 model.compile(loss="binary_crossentropy",
               optimizer=keras.optimizers.RMSprop(learning_rate=1e-5),
               metrics=["accuracy"])
@@ -1143,6 +1232,7 @@ callbacks = [
         save_best_only=True,
         monitor="val_loss")
 ]
+
 history = model.fit(
     train_dataset,
     epochs=30,
