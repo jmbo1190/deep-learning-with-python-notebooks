@@ -7,9 +7,9 @@ jupyter:
       format_version: '1.2'
       jupytext_version: 1.8.0
   kernelspec:
-    display_name: r-reticulate (Py 3.7 TF2.7 rpy2)
+    display_name: TF2.6Py3.7
     language: python
-    name: r-reticulate
+    name: tf2.6py3.7
 ---
 
 <!-- #region colab_type="text" -->
@@ -24,11 +24,15 @@ This notebook was generated for TensorFlow 2.6.
 # Get current python environment - depends on selected kernel
 import os
 import sys
+import inspect
+
 print("os.getcwd(): " + os.getcwd())
 print("sys.prefix: ", sys.prefix)
 print("sys.exec_prefix: ", sys.exec_prefix)
 print("sys.executable: ", sys.executable)
 print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
+
+print("inspect.currentframe():", inspect.currentframe())
 
 import tensorflow as tf
 print(f"TensorFlow Version: {tf.__version__}")
@@ -47,7 +51,7 @@ if tf.__version__ >= "2.":
         
 ```
 
-```{python jupyter={'outputs_hidden': True}}
+```{python}
 # Get installed package versions in virtual environment associated to Jupyter kernel
 import pkg_resources
 
