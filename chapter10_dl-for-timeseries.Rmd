@@ -7,9 +7,9 @@ jupyter:
       format_version: '1.2'
       jupytext_version: 1.8.0
   kernelspec:
-    display_name: Python 3
+    display_name: r-reticulate (Py 3.7 TF2.7 rpy2)
     language: python
-    name: python3
+    name: r-reticulate
 ---
 
 <!-- #region colab_type="text" -->
@@ -20,25 +20,101 @@ This is a companion notebook for the book [Deep Learning with Python, Second Edi
 This notebook was generated for TensorFlow 2.6.
 <!-- #endregion -->
 
-<!-- #region colab_type="text" -->
-# Deep learning for timeseries
-<!-- #endregion -->
+```{python}
+import os
+import sys
+import inspect
 
-<!-- #region colab_type="text" -->
-## Different kinds of timeseries tasks
-<!-- #endregion -->
+print("os.getcwd(): " + os.getcwd())
+print("sys.prefix: ", sys.prefix)
+print("sys.exec_prefix: ", sys.exec_prefix)
+print("sys.executable: ", sys.executable)
+print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
 
-<!-- #region colab_type="text" -->
-## A temperature-forecasting example
-<!-- #endregion -->
+print("inspect.getabsfile(inspect.currentframe()) :", inspect.getabsfile(inspect.currentframe()) )
 
-```{python colab_type="code"}
-# !wget https://s3.amazonaws.com/keras-datasets/jena_climate_2009_2016.csv.zip
-# !unzip jena_climate_2009_2016.csv.zip
+import tensorflow as tf
+print(f"TensorFlow Version: {tf.__version__}")
+print("inspect.getabsfile(tf) :", inspect.getabsfile(tf) )
+        
+from tensorflow import keras
+print(f"Keras Version: {keras.__version__}")
+print("inspect.getabsfile(keras) :", inspect.getabsfile(keras) )
+
+from tensorflow.keras import layers
+print("inspect.getabsfile(layers) :", inspect.getabsfile(layers) )
+
+from GAmodel import GAModel
+print("inspect.getabsfile(GAModel) :", inspect.getabsfile(GAModel) )
+
+if tf.__version__ >= "2.":
+    tf.config.list_physical_devices('GPU')
+    import tensorflow.keras
+    print(f"Keras Version: {tensorflow.keras.__version__}")
+    gpu = len(tf.config.list_physical_devices('GPU'))>0
+    print("GPU is", "available" if gpu else "NOT AVAILABLE")
+    if gpu:
+        print(tf.config.list_physical_devices('GPU'))
+
+```
+
+```{python}
+# Get installed package versions in virtual environment associated to Jupyter kernel
+import pkg_resources
+
+pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+
+for k in sorted(pkgs.keys()):
+    print(k, pkgs.get(k))
+```
+
+```{python}
+import subprocess
+import sys
+import pkg_resources
+
+
+# Calling [sys.executable, '-m', 'pip', 'install', name] 
+# rather than ['pip', 'install', name]
+# is making sure to get the "right" pip (i.e. you install in current virtual environment)
+def install(package):
+    """ Install package with pip if not yet installed in current virtual environment """
+    # Get installed package versions in virtual environment associated to Jupyter kernel
+    pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+    if package not in pkgs.keys():
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    else:
+        print(f"Package {package} version {pkgs.get(package)} is already installed")
+    
+install("ipython-autotime")
+# %load_ext autotime
+```
+
+```{python}
+from keras.engine.training import Model
+print("inspect.getabsfile(Model) :", inspect.getabsfile(Model) )
+
 ```
 
 <!-- #region colab_type="text" -->
-**Inspecting the data of the Jena weather dataset**
+# 10 Deep learning for timeseries
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## 10.1 Different kinds of timeseries tasks
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## 10.2 A temperature-forecasting example
+<!-- #endregion -->
+
+```{python colab_type="code"}
+! [ ! -e jena_climate_2009_2016.csv.zip ] && wget https://s3.amazonaws.com/keras-datasets/jena_climate_2009_2016.csv.zip
+# !unzip -o jena_climate_2009_2016.csv.zip
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 10.1 Inspecting the data of the Jena weather dataset --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -51,35 +127,39 @@ with open(fname) as f:
 lines = data.split("\n")
 header = lines[0].split(",")
 lines = lines[1:]
-print(header)
+
+for h in header:
+    print(h)
 print(len(lines))
 ```
 
 <!-- #region colab_type="text" -->
-**Parsing the data**
+**-- Listing 10.2 Parsing the data --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 import numpy as np
+
 temperature = np.zeros((len(lines),))
 raw_data = np.zeros((len(lines), len(header) - 1))
 for i, line in enumerate(lines):
     values = [float(x) for x in line.split(",")[1:]]
-    temperature[i] = values[1]
-    raw_data[i, :] = values[:]
+    temperature[i] = values[1]  # We store column 1 in the “temperature” array.
+    raw_data[i, :] = values[:]  # We store all columns (including the temperature) in the “raw_data” array
 ```
 
 <!-- #region colab_type="text" -->
-**Plotting the temperature timeseries**
+**-- Listing 10.3 Plotting the temperature timeseries --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 from matplotlib import pyplot as plt
+
 plt.plot(range(len(temperature)), temperature)
 ```
 
 <!-- #region colab_type="text" -->
-**Plotting the first 10 days of the temperature timeseries**
+**-- Listing 10.4 Plotting the first 10 days of the temperature timeseries --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -87,7 +167,7 @@ plt.plot(range(1440), temperature[:1440])
 ```
 
 <!-- #region colab_type="text" -->
-**Computing the number of samples we'll use for each data split**
+**-- Listing 10.5 Computing the number of samples we'll use for each data split --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -100,38 +180,42 @@ print("num_test_samples:", num_test_samples)
 ```
 
 <!-- #region colab_type="text" -->
-### Preparing the data
+### 10.2.1 Preparing the data
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Normalizing the data**
+**-- Listing 10.6 Normalizing the data --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 mean = raw_data[:num_train_samples].mean(axis=0)
+print(mean)
 raw_data -= mean
 std = raw_data[:num_train_samples].std(axis=0)
+print(std)
 raw_data /= std
 ```
 
 ```{python colab_type="code"}
 import numpy as np
 from tensorflow import keras
-int_sequence = np.arange(10)
+
+int_sequence = np.arange(10)  # Generate an array of sorted integers from 0 to 9.
 dummy_dataset = keras.utils.timeseries_dataset_from_array(
-    data=int_sequence[:-3],
-    targets=int_sequence[3:],
-    sequence_length=3,
-    batch_size=2,
+    data=int_sequence[:-3],   # The sequences we generate will be sampled from [0 1 2 3 4 5 6].
+    targets=int_sequence[3:], # The target for the sequence that starts at data[N] will be data[N + 3].
+    sequence_length=3,        # The sequences will be 3 steps long
+    batch_size=2,             # The sequences will be batched in batches of size 2
 )
 
 for inputs, targets in dummy_dataset:
     for i in range(inputs.shape[0]):
         print([int(x) for x in inputs[i]], int(targets[i]))
+
 ```
 
 <!-- #region colab_type="text" -->
-**Instantiating datasets for training, validation, and testing**
+**-- Listing 10.7 Instantiating datasets for training, validation, and testing --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -168,10 +252,11 @@ test_dataset = keras.utils.timeseries_dataset_from_array(
     shuffle=True,
     batch_size=batch_size,
     start_index=num_train_samples + num_val_samples)
+
 ```
 
 <!-- #region colab_type="text" -->
-**Inspecting the output of one of our datasets**
+**-- Listing 10.8 Inspecting the output of one of our datasets --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -182,11 +267,11 @@ for samples, targets in train_dataset:
 ```
 
 <!-- #region colab_type="text" -->
-### A common-sense, non-machine-learning baseline
+### 10.2.2 A common-sense, non-machine-learning baseline
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Computing the common-sense baseline MAE**
+**-- Listing 10.9 Computing the common-sense baseline MAE --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -194,7 +279,9 @@ def evaluate_naive_method(dataset):
     total_abs_err = 0.
     samples_seen = 0
     for samples, targets in dataset:
-        preds = samples[:, -1, 1] * std[1] + mean[1]
+        preds = samples[:, -1, 1] * std[1] + mean[1]            # The temperature feature is at column 1, so samples[:, -1, 1] is the last temperature measurement in the input sequence. 
+                                                                # Recall that we normalized our features, so to retrieve a temperature in degrees Celsius, 
+                                                                # we need to un-normalize it by multiplying it by the standard deviation and adding back the mean
         total_abs_err += np.sum(np.abs(preds - targets))
         samples_seen += samples.shape[0]
     return total_abs_err / samples_seen
@@ -204,11 +291,11 @@ print(f"Test MAE: {evaluate_naive_method(test_dataset):.2f}")
 ```
 
 <!-- #region colab_type="text" -->
-### Let's try a basic machine-learning model
+### 10.2.3 Let's try a basic machine-learning model
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Training and evaluating a densely connected model**
+**-- Listing 10.10 Training and evaluating a densely connected model --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -222,25 +309,28 @@ outputs = layers.Dense(1)(x)
 model = keras.Model(inputs, outputs)
 
 callbacks = [
-    keras.callbacks.ModelCheckpoint("jena_dense.keras",
-                                    save_best_only=True)
+    keras.callbacks.ModelCheckpoint("jena_dense.keras", save_best_only=True)  # We use a callback to save the best-performing model.
 ]
+
 model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
 history = model.fit(train_dataset,
                     epochs=10,
                     validation_data=val_dataset,
                     callbacks=callbacks)
 
+# Reload the best model and evaluate it on the test data
 model = keras.models.load_model("jena_dense.keras")
 print(f"Test MAE: {model.evaluate(test_dataset)[1]:.2f}")
+
 ```
 
 <!-- #region colab_type="text" -->
-**Plotting results**
+**-- Listing 10.11 Plotting results --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 import matplotlib.pyplot as plt
+
 loss = history.history["mae"]
 val_loss = history.history["val_mae"]
 epochs = range(1, len(loss) + 1)
@@ -250,10 +340,11 @@ plt.plot(epochs, val_loss, "b", label="Validation MAE")
 plt.title("Training and validation MAE")
 plt.legend()
 plt.show()
+
 ```
 
 <!-- #region colab_type="text" -->
-### Let's try a 1D convolutional model
+### 10.2.4 Let's try a 1D convolutional model
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -282,11 +373,11 @@ print(f"Test MAE: {model.evaluate(test_dataset)[1]:.2f}")
 ```
 
 <!-- #region colab_type="text" -->
-### A first recurrent baseline
+### 10.2.5 A first recurrent baseline
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**A simple LSTM-based model**
+**-- Listing 10.12 A simple LSTM-based model --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -310,37 +401,43 @@ print(f"Test MAE: {model.evaluate(test_dataset)[1]:.2f}")
 ```
 
 <!-- #region colab_type="text" -->
-## Understanding recurrent neural networks
+## 10.3 Understanding recurrent neural networks
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**NumPy implementation of a simple RNN**
+**-- Listing 10.15 NumPy implementation of a simple RNN --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 import numpy as np
-timesteps = 100
-input_features = 32
-output_features = 64
+
+timesteps = 100        # Number of timesteps in the input sequence
+input_features = 32    # Dimensionality of the input feature space
+output_features = 64   # Dimensionality of the output feature space
 inputs = np.random.random((timesteps, input_features))
-state_t = np.zeros((output_features,))
+state_t = np.zeros((output_features,))                    # Initial state: an all-zero vector
+
+# Creates random weight matrices
 W = np.random.random((output_features, input_features))
 U = np.random.random((output_features, output_features))
 b = np.random.random((output_features,))
+
 successive_outputs = []
-for input_t in inputs:
-    output_t = np.tanh(np.dot(W, input_t) + np.dot(U, state_t) + b)
-    successive_outputs.append(output_t)
-    state_t = output_t
-final_output_sequence = np.stack(successive_outputs, axis=0)
+for input_t in inputs:                                                    # input_t is a vector of shape (input_features,)
+    output_t = np.tanh(np.dot(W, input_t) + np.dot(U, state_t) + b)       # Combines the input with the current state (the previous output) to obtain the current output. 
+                                                                          # We use tanh to add non-linearity (we could use any other activation function).
+    successive_outputs.append(output_t)                                   # Stores this output in a list
+    state_t = output_t                                                    # Updates the state of the network for the next timestep
+final_output_sequence = np.stack(successive_outputs, axis=0)              # The final output is a rank-2 tensor of shape (timesteps, output_features)
+
 ```
 
 <!-- #region colab_type="text" -->
-### A recurrent layer in Keras
+### 10.3.1 A recurrent layer in Keras
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**An RNN layer that can process sequences of any length**
+**-- Listing 10.16 An RNN layer that can process sequences of any length --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -350,19 +447,19 @@ outputs = layers.SimpleRNN(16)(inputs)
 ```
 
 <!-- #region colab_type="text" -->
-**An RNN layer that returns only its last output step**
+**-- Listing 10.17 An RNN layer that returns only its last output step--**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 num_features = 14
 steps = 120
 inputs = keras.Input(shape=(steps, num_features))
-outputs = layers.SimpleRNN(16, return_sequences=False)(inputs)
+outputs = layers.SimpleRNN(16, return_sequences=False)(inputs)   # Note that return_sequences=False is the default
 print(outputs.shape)
 ```
 
 <!-- #region colab_type="text" -->
-**An RNN layer that returns its full output sequence**
+**-- Listing 10.18 An RNN layer that returns its full output sequence --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -374,7 +471,7 @@ print(outputs.shape)
 ```
 
 <!-- #region colab_type="text" -->
-**Stacking RNN layers**
+**-- Listing 10.19 Stacking RNN layers --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -385,21 +482,21 @@ outputs = layers.SimpleRNN(16)(x)
 ```
 
 <!-- #region colab_type="text" -->
-## Advanced use of recurrent neural networks
+## 10.4 Advanced use of recurrent neural networks
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-### Using recurrent dropout to fight overfitting
+### 10.4.1 Using recurrent dropout to fight overfitting
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Training and evaluating a dropout-regularized LSTM**
+**-- Listing 10.22 Training and evaluating a dropout-regularized LSTM --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 inputs = keras.Input(shape=(sequence_length, raw_data.shape[-1]))
 x = layers.LSTM(32, recurrent_dropout=0.25)(inputs)
-x = layers.Dropout(0.5)(x)
+x = layers.Dropout(0.5)(x)        # To regularize the Dense layer, we also add a Dropout layer after the LSTM.
 outputs = layers.Dense(1)(x)
 model = keras.Model(inputs, outputs)
 
@@ -409,22 +506,144 @@ callbacks = [
 ]
 model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
 history = model.fit(train_dataset,
-                    epochs=50,
+                    epochs=5,  # changed from 50 to 5 so we can just see how slow this is (see faster implementation with unrolling below)
                     validation_data=val_dataset,
                     callbacks=callbacks)
 ```
 
+Note: during training on ub5 (GeForce GTX 1660 SUPER), `nvtop` reports as usage: GPU ~35%, CPU ~250%
+
+
+#### RNN runtime performance
+Recurrent models with very few parameters, like the ones in this chapter, tend to be significantly faster on a multicore CPU than on GPU, because they only involve
+small matrix multiplications, and the chain of multiplications is not well parallelizable due to the presence of a for loop. But larger RNNs can greatly benefit from a
+GPU runtime.
+
+See the WARNING above:
+
+`WARNING:tensorflow:Layer lstm_1 will not use cuDNN kernels since it doesn't meet the criteria. It will use a generic GPU kernel as fallback when running on GPU.`
+
+Recurrent dropout isn’t supported by the LSTM and GRU cuDNN kernels, so adding it to your layers forces the runtime to fall back to the regular TensorFlow implementation, 
+which is generally two to five times slower on GPU (even though its computational cost is the same).
+
+As a way to speed up your RNN layer when you can’t use cuDNN, you can try unrolling it. 
+Unrolling a for loop consists of removing the loop and simply inlining its content N times. 
+In the case of the for loop of an RNN, unrolling can help TensorFlow optimize the underlying computation graph. However, it will also considerably increase
+the memory consumption of your RNN—as such, it’s only viable for relatively small sequences (around 100 steps or fewer). 
+Also, note that you can only do this if the number of timesteps in the data is known in advance by the model (that is to say, if
+you pass a shape without any None entries to your initial Input()). 
+
+It works like this:
+
 ```{python colab_type="code"}
-inputs = keras.Input(shape=(sequence_length, num_features))
-x = layers.LSTM(32, recurrent_dropout=0.2, unroll=True)(inputs)
+print("sequence_length:", sequence_length)
+
+inputs = keras.Input(shape=(sequence_length, num_features))        # sequence_length cannot be None
+x = layers.LSTM(32, recurrent_dropout=0.25, unroll=True)(inputs)   # Pass unroll=True to enable unrolling.
+x = layers.Dropout(0.5)(x)        # To regularize the Dense layer, we also add a Dropout layer after the LSTM.
+outputs = layers.Dense(1)(x)
+model = keras.Model(inputs, outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_lstm_dropout.keras",
+                                    save_best_only=True)
+]
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+model.summary()
+history = model.fit(train_dataset,
+                    epochs=5,    # changed from 50 to 5 so we can just this is a bit faster but still slower than using CPU
+                    validation_data=val_dataset,
+                    callbacks=callbacks)
+```
+
+Note: during training on ub5 (GeForce GTX 1660 SUPER), `nvtop` reports as usage: GPU ~50%, CPU ~180%
+
+
+However according to https://www.tensorflow.org/api_docs/python/tf/keras/layers/LSTM, The requirements to use the fast cuDNN implementation with LSTM/GRU are:
+
+* activation == tanh
+* recurrent_activation == sigmoid
+* recurrent_dropout == 0
+* unroll is False
+* use_bias is True
+* Inputs, if use masking, are strictly right-padded.
+* Eager execution is enabled in the outermost context.
+
+```{python}
+# Compare with execution on CPU
+inputs = keras.Input(shape=(sequence_length, num_features))        # sequence_length cannot be None
+x = layers.LSTM(32, recurrent_dropout=0.25, unroll=True)(inputs)   # Pass unroll=True to enable unrolling.
+x = layers.Dropout(0.5)(x)        # To regularize the Dense layer, we also add a Dropout layer after the LSTM.
+outputs = layers.Dense(1)(x)
+model = keras.Model(inputs, outputs)
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("jena_lstm_dropout.keras",
+                                    save_best_only=True)
+]
+
+model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
+
+# Run on CPU:
+with tf.device('/cpu:0'):
+    history = model.fit(train_dataset,
+                        epochs=5,    # train at first only on 5 epochs - to compare time with GPU
+                        validation_data=val_dataset,
+                        callbacks=callbacks)
+
+```
+
+Note: during training on ub5 (GeForce GTX 1660 SUPER), `nvtop` reports as usage: GPU 0-5%, CPU ~660%
+
+```{python}
+import matplotlib.pyplot as plt
+
+loss = history.history["mae"]
+val_loss = history.history["val_mae"]
+epochs = range(1, len(loss) + 1)
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training MAE")
+plt.plot(epochs, val_loss, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+
+```
+
+```{python}
+# Resume training for 45 more epochs
+
+# Run on CPU:
+with tf.device('/cpu:0'):
+    history = model.fit(train_dataset,
+                        epochs=50,
+                        initial_epoch=5,
+                        validation_data=val_dataset,
+                        callbacks=callbacks)
+```
+
+```{python}
+import matplotlib.pyplot as plt
+
+loss = history.history["mae"]
+val_loss = history.history["val_mae"]
+initial_epoch = 5
+epochs = range(initial_epoch + 1, len(loss) + initial_epoch + 1) 
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training MAE")
+plt.plot(epochs, val_loss, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+
 ```
 
 <!-- #region colab_type="text" -->
-### Stacking recurrent layers
+### 10.4.2 Stacking recurrent layers
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Training and evaluating a dropout-regularized, stacked GRU model**
+**-- Listing 10.23 Training and evaluating a dropout-regularized, stacked GRU model --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -440,20 +659,48 @@ callbacks = [
                                     save_best_only=True)
 ]
 model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
-history = model.fit(train_dataset,
-                    epochs=50,
-                    validation_data=val_dataset,
-                    callbacks=callbacks)
+
+# when run on GPU: GPU ~33%, CPU ~233%, ~310ms/step, ~255s/epoch
+# with tf.device('/gpu:0'):
+#     history = model.fit(train_dataset,
+#                         epochs=50,
+#                         validation_data=val_dataset,
+#                         callbacks=callbacks)
+
+# Run on CPU: GPU ~5%, CPU ~660%, ~125ms/step, ~105s/epoch
+with tf.device('/cpu:0'):
+    history = model.fit(train_dataset,
+                        epochs=50,
+                        validation_data=val_dataset,
+                        callbacks=callbacks)
+
 model = keras.models.load_model("jena_stacked_gru_dropout.keras")
-print(f"Test MAE: {model.evaluate(test_dataset)[1]:.2f}")
+with tf.device('/cpu:0'):
+    print(f"Test MAE: {model.evaluate(test_dataset)[1]:.2f}")
+
+```
+
+```{python}
+import matplotlib.pyplot as plt
+
+loss = history.history["mae"]
+val_loss = history.history["val_mae"]
+epochs = range(1, len(loss) + 1)
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training MAE")
+plt.plot(epochs, val_loss, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+
 ```
 
 <!-- #region colab_type="text" -->
-### Using bidirectional RNNs
+### 10.4.3 Using bidirectional RNNs
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Training and evaluating a bidirectional LSTM**
+**-- Listing 10.24 Training and evaluating a bidirectional LSTM --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -463,13 +710,48 @@ outputs = layers.Dense(1)(x)
 model = keras.Model(inputs, outputs)
 
 model.compile(optimizer="rmsprop", loss="mse", metrics=["mae"])
-history = model.fit(train_dataset,
-                    epochs=10,
-                    validation_data=val_dataset)
+```
+
+```{python colab_type="code"}
+# Run on GPU: GPU ~60%, CPU ~660, ~11ms/step, ~9s/epoch
+with tf.device('/gpu:0'):
+    history1 = model.fit(train_dataset,
+                         epochs=5,
+                         validation_data=val_dataset)
+```
+
+```{python colab_type="code"}
+# Run on CPU: GPU ~1%, CPU ~800%, ~41ms/step, ~35s/epoch
+with tf.device('/cpu:0'):
+    history2 = model.fit(train_dataset,
+                         epochs=10,
+                         initial_epoch = 5,
+                         validation_data=val_dataset)
+```
+
+```{python colab_type="code"}
+history = {"history": {"mae": history1.history["mae"] + history2.history["mae"],
+                       "val_mae": history1.history["val_mae"] + history2.history["val_mae"]}
+          }
+```
+
+```{python}
+import matplotlib.pyplot as plt
+
+loss = history["history"]["mae"]
+val_loss = history["history"]["val_mae"]
+epochs = range(1, len(loss) + 1)
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training MAE")
+plt.plot(epochs, val_loss, "b", label="Validation MAE")
+plt.title("Training and validation MAE")
+plt.legend()
+plt.show()
+
 ```
 
 <!-- #region colab_type="text" -->
-### Going even further
+### 10.4.4 Going even further
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
