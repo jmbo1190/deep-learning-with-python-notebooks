@@ -7,9 +7,9 @@ jupyter:
       format_version: '1.2'
       jupytext_version: 1.8.0
   kernelspec:
-    display_name: Python 3
+    display_name: TF2.6Py3.7
     language: python
-    name: python3
+    name: tf2.6py3.7
 ---
 
 <!-- #region colab_type="text" -->
@@ -19,6 +19,64 @@ This is a companion notebook for the book [Deep Learning with Python, Second Edi
 
 This notebook was generated for TensorFlow 2.6.
 <!-- #endregion -->
+
+```{python}
+# Get current python environment - depends on selected kernel
+import os
+import sys
+print("os.getcwd(): " + os.getcwd())
+print("sys.prefix: ", sys.prefix)
+print("sys.exec_prefix: ", sys.exec_prefix)
+print("sys.executable: ", sys.executable)
+print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
+
+import tensorflow as tf
+print(f"TensorFlow Version: {tf.__version__}")
+
+if tf.__version__ >= "2.":
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    tf.config.list_physical_devices('GPU')
+    import tensorflow.keras
+    print(f"Keras Version: {tensorflow.keras.__version__}")
+    gpu = len(tf.config.list_physical_devices('GPU'))>0
+    print("GPU is", "available" if gpu else "NOT AVAILABLE")
+    if gpu:
+        print(tf.config.list_physical_devices('GPU'))
+        
+```
+
+```{python}
+# Get installed package versions in virtual environment associated to Jupyter kernel
+import pkg_resources
+
+pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+
+for k in sorted(pkgs.keys()):
+    print(k, pkgs.get(k))
+```
+
+```{python}
+import subprocess
+import sys
+import pkg_resources
+
+
+# Calling [sys.executable, '-m', 'pip', 'install', name] 
+# rather than ['pip', 'install', name]
+# is making sure to get the "right" pip (i.e. you install in current virtual environment)
+def install(package):
+    # Get installed package versions in virtual environment associated to Jupyter kernel
+    pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+    if package not in pkgs.keys():
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    else:
+        print(f"Package {package} version {pkgs.get(package)} is already installed")
+    
+install("ipython-autotime")
+# %load_ext autotime
+```
 
 <!-- #region colab_type="text" -->
 ## Interpreting what convnets learn
@@ -31,13 +89,19 @@ This notebook was generated for TensorFlow 2.6.
 ```{python colab_type="code"}
 # You can use this to load the file "convnet_from_scratch_with_augmentation.keras"
 # you obtained in the last chapter.
-from google.colab import files
-files.upload()
+# from google.colab import files
+# files.upload()
 ```
 
 ```{python colab_type="code"}
 from tensorflow import keras
-model = keras.models.load_model("convnet_from_scratch_with_augmentation.keras")
+from GAmodel import GAModel
+
+#model = keras.models.load_model("convnet_from_scratch_with_augmentation.keras")
+model = keras.models.load_model("convnet_from_scratch_with_augmentation.tf")
+```
+
+```{python colab_type="code"}
 model.summary()
 ```
 
@@ -288,50 +352,84 @@ for i in range(n):
 
 keras.utils.save_img(
     f"filters_for_layer_{layer_name}.png", stitched_filters)
+print(f"filters_for_layer_{layer_name}.png")
 ```
 
+![filters for layer predictions](filters_for_layer_predictions.png "filters_for_layer_predictions.png")
+
 <!-- #region colab_type="text" -->
-### Visualizing heatmaps of class activation
+### 9.4.3 Visualizing heatmaps of class activation
+
+This general category of techniques is called class activation map (CAM) visualization, and it consists of producing heatmaps of class activation over input images. A class activation heatmap is a 2D grid of scores associated with a specific output class, computed for every location in any input image, indicating how important each location is with respect to the class under consideration.
+
+he specific implementation we’ll use is the one described in an article titled [“Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization.”](https://arxiv.org/abs/1610.02391)
+
+Grad-CAM consists of taking the output feature map of a convolution layer, given an input image, and weighing every channel in that feature map by the gradient of
+the class with respect to the channel. 
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Loading the Xception network with pretrained weights**
+**-- Listing 9.20 Loading the Xception network with pretrained weights --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
+from tensorflow import keras
+
+# Note that we include the densely connected classifier on top; in all previous cases, we discarded it.
 model = keras.applications.xception.Xception(weights="imagenet")
 ```
 
 <!-- #region colab_type="text" -->
-**Preprocessing an input image for Xception**
+**-- Listing 9.21 Preprocessing an input image for Xception --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
+import numpy as np
+
+# Download the image and store it locally under the path img_path
 img_path = keras.utils.get_file(
     fname="elephant.jpg",
     origin="https://img-datasets.s3.amazonaws.com/elephant.jpg")
 
+print("Downloaded image was stored to:", img_path)
+
+# make a link to downloaded image in current directory
+! [ ! -e elephant.jpg ] && ln -s {img_path} elephant.jpg 
+
 def get_img_array(img_path, target_size):
-    img = keras.utils.load_img(img_path, target_size=target_size)
-    array = keras.utils.img_to_array(img)
-    array = np.expand_dims(array, axis=0)
-    array = keras.applications.xception.preprocess_input(array)
+    img = keras.utils.load_img(img_path, target_size=target_size)  # Return a Python Imaging Library (PIL) image of size 299 × 299
+    array = keras.utils.img_to_array(img)                          # Return a float32 NumPy array of shape (299, 299, 3)
+    array = np.expand_dims(array, axis=0)                          # Add a dimension to transform the array into a batch of size (1, 299, 299, 3)
+    array = keras.applications.xception.preprocess_input(array)    # Preprocess the batch (this does channel-wise color normalization).
     return array
 
 img_array = get_img_array(img_path, target_size=(299, 299))
+
+```
+
+```{python}
+from IPython.display import display, Markdown #, Latex
+
+display(Markdown(f'![original picture](elephant.jpg "Figure 9.18 Test picture of African elephants")'))
+
 ```
 
 ```{python colab_type="code"}
+# Run the pretrained network on the image and decode its prediction vector back to a human-readable format
 preds = model.predict(img_array)
 print(keras.applications.xception.decode_predictions(preds, top=3)[0])
 ```
+
+The entry in the prediction vector that was maximally activated is the one corresponding to the “African elephant” class, at index 386.
 
 ```{python colab_type="code"}
 np.argmax(preds[0])
 ```
 
 <!-- #region colab_type="text" -->
-**Setting up a model that returns the last convolutional output**
+First, we create a model that maps the input image to the activations of the last convolutional layer.
+
+**-- Listing 9.22 Setting up a model that returns the last convolutional output --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -345,7 +443,9 @@ last_conv_layer_model = keras.Model(model.inputs, last_conv_layer.output)
 ```
 
 <!-- #region colab_type="text" -->
-**Reapplying the classifier on top of the last convolutional output**
+Second, we create a model that maps the activations of the last convolutional layer to the final class predictions.
+
+**-- Listing 9.23 Reapplying the classifier on top of the last convolutional output --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -353,74 +453,103 @@ classifier_input = keras.Input(shape=last_conv_layer.output.shape[1:])
 x = classifier_input
 for layer_name in classifier_layer_names:
     x = model.get_layer(layer_name)(x)
+    
 classifier_model = keras.Model(classifier_input, x)
+
+classifier_model.summary()
 ```
 
 <!-- #region colab_type="text" -->
-**Retrieving the gradients of the top predicted class**
+Then we compute the gradient of the top predicted class for our input image with respect to the activations of the last convolution layer.
+
+**-- Listing 9.24 Retrieving the gradients of the top predicted class --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 import tensorflow as tf
 
 with tf.GradientTape() as tape:
-    last_conv_layer_output = last_conv_layer_model(img_array)
+    last_conv_layer_output = last_conv_layer_model(img_array)   # Compute activations of the last conv layer and make the tape watch it
     tape.watch(last_conv_layer_output)
+    
+    # Retrieve the activation channel corresponding to the top predicted class.
     preds = classifier_model(last_conv_layer_output)
     top_pred_index = tf.argmax(preds[0])
     top_class_channel = preds[:, top_pred_index]
 
+# This is the gradient of the top predicted class with regard to the output feature map of the last convolutional layer
 grads = tape.gradient(top_class_channel, last_conv_layer_output)
+
 ```
 
 <!-- #region colab_type="text" -->
-**Gradient pooling and channel-importance weighting**
+Now we apply pooling and importance weighting to the gradient tensor to obtain our heatmap of class activation.
+
+**-- Listing 9.25 Gradient pooling and channel-importance weighting --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
-pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2)).numpy()
+pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2)).numpy()    # This is a vector where each entry is the mean intensity of the
+                                                                # gradient for a given channel. It quantifies the importance of
+                                                                # each channel with regard to the top predicted class
 last_conv_layer_output = last_conv_layer_output.numpy()[0]
+
 for i in range(pooled_grads.shape[-1]):
-    last_conv_layer_output[:, :, i] *= pooled_grads[i]
-heatmap = np.mean(last_conv_layer_output, axis=-1)
+    last_conv_layer_output[:, :, i] *= pooled_grads[i]          # Multiply each channel in the output of the last convolutional layer 
+                                                                # by “how important this channel is.”
+        
+heatmap = np.mean(last_conv_layer_output, axis=-1)              # The channel-wise mean of the resulting feature
+                                                                # map is our heatmap of class activation.
 ```
 
 <!-- #region colab_type="text" -->
-**Heatmap post-processing**
+**-- Listing 9.26 Heatmap post-processing --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
+# For visualization purposes, we normalize the heatmap between 0 and 1
 heatmap = np.maximum(heatmap, 0)
 heatmap /= np.max(heatmap)
+
+import matplotlib.pyplot as plt
+
 plt.matshow(heatmap)
 ```
 
 <!-- #region colab_type="text" -->
-**Superimposing the heatmap on the original picture**
+**-- Listing 9.27 Superimposing the heatmap on the original picture --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 import matplotlib.cm as cm
 
+# Load the original image
 img = keras.utils.load_img(img_path)
 img = keras.utils.img_to_array(img)
 
-heatmap = np.uint8(255 * heatmap)
+heatmap = np.uint8(255 * heatmap)  # Rescale the heatmap to the range 0–255
 
+# Use the "jet" colormap to recolorize the heatmap
 jet = cm.get_cmap("jet")
 jet_colors = jet(np.arange(256))[:, :3]
 jet_heatmap = jet_colors[heatmap]
 
+# Create an image that contains the recolorized heatmap
 jet_heatmap = keras.utils.array_to_img(jet_heatmap)
 jet_heatmap = jet_heatmap.resize((img.shape[1], img.shape[0]))
 jet_heatmap = keras.utils.img_to_array(jet_heatmap)
 
+# Superimpose the heatmap and the original image, with the heatmap at 40% opacity
 superimposed_img = jet_heatmap * 0.4 + img
 superimposed_img = keras.utils.array_to_img(superimposed_img)
 
+# Save the superimposed image
 save_path = "elephant_cam.jpg"
 superimposed_img.save(save_path)
+
 ```
+
+![heatmap superimposed on original picture](elephant_cam.jpg "Figure 9.20 African elephant class activation heatmap over the test picture")
 
 <!-- #region colab_type="text" -->
 ## Summary

@@ -7,9 +7,9 @@ jupyter:
       format_version: '1.2'
       jupytext_version: 1.8.0
   kernelspec:
-    display_name: Python 3
+    display_name: TF2.6Py3.7
     language: python
-    name: python3
+    name: tf2.6py3.7
 ---
 
 <!-- #region colab_type="text" -->
@@ -20,25 +20,67 @@ This is a companion notebook for the book [Deep Learning with Python, Second Edi
 This notebook was generated for TensorFlow 2.6.
 <!-- #endregion -->
 
+```{python}
+# Get current python environment - depends on selected kernel
+import os
+import sys
+import inspect
+
+print("os.getcwd(): " + os.getcwd())
+print("sys.prefix: ", sys.prefix)
+print("sys.exec_prefix: ", sys.exec_prefix)
+print("sys.executable: ", sys.executable)
+print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
+
+print("inspect.currentframe():", inspect.currentframe())
+
+import tensorflow as tf
+print(f"TensorFlow Version: {tf.__version__}")
+
+if tf.__version__ >= "2.":
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    tf.config.list_physical_devices('GPU')
+    import tensorflow.keras
+    print(f"Keras Version: {tensorflow.keras.__version__}")
+    gpu = len(tf.config.list_physical_devices('GPU'))>0
+    print("GPU is", "available" if gpu else "NOT AVAILABLE")
+    if gpu:
+        print(tf.config.list_physical_devices('GPU'))
+        
+```
+
+```{python}
+# Get installed package versions in virtual environment associated to Jupyter kernel
+import pkg_resources
+
+pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+
+for k in sorted(pkgs.keys()):
+    print(k, pkgs.get(k))
+```
+
 <!-- #region colab_type="text" -->
-## Modern convnet architecture patterns
+## 9.3 Modern convnet architecture patterns
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-### Modularity, hierarchy, and reuse
+### 9.3.1 Modularity, hierarchy, and reuse
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-### Residual connections
+### 9.3.2 Residual connections
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-**Residual block where the number of filters changes**
+**-- Listing 9.2 Residual block where the number of filters changes --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
 from tensorflow import keras
 from tensorflow.keras import layers
+from GAmodel import GAModel
 
 inputs = keras.Input(shape=(32, 32, 3))
 x = layers.Conv2D(32, 3, activation="relu")(inputs)
@@ -49,7 +91,7 @@ x = layers.add([x, residual])
 ```
 
 <!-- #region colab_type="text" -->
-**Case where target block includes a max pooling layer**
+**-- Listing 9.3 Case where target block includes a max pooling layer --**
 <!-- #endregion -->
 
 ```{python colab_type="code"}
@@ -89,28 +131,60 @@ model.summary()
 ```
 
 <!-- #region colab_type="text" -->
-### Batch normalization
+### 9.3.3 Batch normalization
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-### Depthwise separable convolutions
+### 9.3.4 Depthwise separable convolutions
 <!-- #endregion -->
 
 <!-- #region colab_type="text" -->
-### Putting it together: A mini Xception-like model
+### 9.3.5 Putting it together: A mini Xception-like model
 <!-- #endregion -->
 
 ```{python colab_type="code"}
-from google.colab import files
-files.upload()
+# This code can be used to upload file kaggle.json (pre-downloaded from kaggle.com) to Colab
+
+# from google.colab import files
+# files.upload()
 ```
 
-```{python colab_type="code"}
+```{python}
+import subprocess
+import sys
+import pkg_resources
+
+
+# Calling [sys.executable, '-m', 'pip', 'install', name] 
+# rather than ['pip', 'install', name]
+# is making sure to get the "right" pip (i.e. you install in current virtual environment)
+def install(package):
+    # Get installed package versions in virtual environment associated to Jupyter kernel
+    pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+    if package not in pkgs.keys():
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    else:
+        print(f"Package {package} version {pkgs.get(package)} is already installed")
+    
+install("kaggle")
+install("ipython-autotime")
+# %load_ext autotime
+```
+
+```{bash colab_type="code"}
 # !mkdir ~/.kaggle
 # !cp kaggle.json ~/.kaggle/
 # !chmod 600 ~/.kaggle/kaggle.json
-# !kaggle competitions download -c dogs-vs-cats
+
+[ ! -e dogs-vs-cats.zip ] && kaggle competitions download -c dogs-vs-cats  || echo "Already downloaded: dogs-vs-cats.zip"
 # !unzip -qq train.zip
+
+ unzip -l dogs-vs-cats.zip
+ unzip -qo dogs-vs-cats.zip
+
+# uncompress the training data:
+ unzip -qo train.zip
+
 ```
 
 ```{python colab_type="code"}
@@ -123,7 +197,7 @@ new_base_dir = pathlib.Path("cats_vs_dogs_small")
 def make_subset(subset_name, start_index, end_index):
     for category in ("cat", "dog"):
         dir = new_base_dir / subset_name / category
-        os.makedirs(dir)
+        os.makedirs(dir, exist_ok=True)
         fnames = [f"{category}.{i}.jpg" for i in range(start_index, end_index)]
         for fname in fnames:
             shutil.copyfile(src=original_dir / fname,
@@ -137,10 +211,12 @@ train_dataset = image_dataset_from_directory(
     new_base_dir / "train",
     image_size=(180, 180),
     batch_size=32)
+
 validation_dataset = image_dataset_from_directory(
     new_base_dir / "validation",
     image_size=(180, 180),
     batch_size=32)
+
 test_dataset = image_dataset_from_directory(
     new_base_dir / "test",
     image_size=(180, 180),
@@ -148,6 +224,7 @@ test_dataset = image_dataset_from_directory(
 ```
 
 ```{python colab_type="code"}
+# We use the same data augmentation configuration as before.
 data_augmentation = keras.Sequential(
     [
         layers.RandomFlip("horizontal"),
@@ -161,10 +238,18 @@ data_augmentation = keras.Sequential(
 inputs = keras.Input(shape=(180, 180, 3))
 x = data_augmentation(inputs)
 
-x = layers.Rescaling(1./255)(x)
+x = layers.Rescaling(1./255)(x)   # input rescaling
+
+# Note that the assumption that underlies separable convolution, “feature channels are largely independent,” 
+# does not hold for RGB images! Red, green, and blue color channels are actually highly correlated in natural
+# images. As such, the first layer in our model is a regular Conv2D layer. We’ll start using SeparableConv2D afterwards.
 x = layers.Conv2D(filters=32, kernel_size=5, use_bias=False)(x)
 
-for size in [32, 64, 128, 256, 512]:
+for size in [32, 64, 128, 256, 512]:    # We apply a series of convolutional blocks with 
+                                        # increasing feature depth. Each block consists of two 
+                                        # batch-normalized depthwise separable convolution 
+                                        # layers and a max pooling layer, with a residual 
+                                        # connection around the entire block.
     residual = x
 
     x = layers.BatchNormalization()(x)
@@ -177,12 +262,16 @@ for size in [32, 64, 128, 256, 512]:
 
     x = layers.MaxPooling2D(3, strides=2, padding="same")(x)
 
-    residual = layers.Conv2D(
-        size, 1, strides=2, padding="same", use_bias=False)(residual)
+    # resize residual to matching size - required to do addition
+    residual = layers.Conv2D(size, 1, strides=2, padding="same", use_bias=False)(residual)
     x = layers.add([x, residual])
+    
 
-x = layers.GlobalAveragePooling2D()(x)
-x = layers.Dropout(0.5)(x)
+x = layers.GlobalAveragePooling2D()(x)  # In the original model, we used a Flatten 
+                                        # layer before the Dense layer. Here, we go 
+                                        # with a GlobalAveragePooling2D layer.
+x = layers.Dropout(0.5)(x)   # Like in the original model, we add a dropout layer for regularization
+
 outputs = layers.Dense(1, activation="sigmoid")(x)
 model = keras.Model(inputs=inputs, outputs=outputs)
 ```
@@ -191,8 +280,70 @@ model = keras.Model(inputs=inputs, outputs=outputs)
 model.compile(loss="binary_crossentropy",
               optimizer="rmsprop",
               metrics=["accuracy"])
+
+model.summary()
+```
+
+This convnet has a trainable parameter count of 721,857, slightly lower than the 991,041 trainable parameters 
+of the original model, but still in the same ballpark.
+
+```{python colab_type="code"}
 history = model.fit(
     train_dataset,
     epochs=100,
     validation_data=validation_dataset)
+
+```
+
+```{python}
+import matplotlib.pyplot as plt
+
+accuracy = history.history["accuracy"]
+val_accuracy = history.history["val_accuracy"]
+loss = history.history["loss"]
+val_loss = history.history["val_loss"]
+epochs = list(range(1, len(accuracy) + 1))
+plt.plot(epochs, accuracy, "bo", label="Training accuracy")
+plt.plot(epochs, val_accuracy, "b", label="Validation accuracy")
+plt.title("Training and validation accuracy")
+plt.legend()
+plt.figure()
+plt.plot(epochs, loss, "bo", label="Training loss")
+plt.plot(epochs, val_loss, "b", label="Validation loss")
+plt.title("Training and validation loss")
+plt.legend()
+plt.show()
+
+```
+
+When the curves look noisy, you can smooth them to make them more readable by replacing every loss and accuracy with exponential moving averages of these quantities. Here’s a trivial utility function to do this:
+
+```{python}
+def smooth_curve(points, factor=0.8):
+    smoothed_points = []
+    for point in points:
+        if smoothed_points:
+            previous = smoothed_points[-1]
+            smoothed_points.append(previous * factor + point * (1 - factor))
+        else:
+            smoothed_points.append(point)
+    return smoothed_points
+
+plt.plot(epochs, smooth_curve(accuracy), 'bo', label='Smoothed training acc')
+plt.plot(epochs, smooth_curve(val_accuracy), 'b', label='Smoothed validation acc')
+plt.title('Training and validation accuracy')
+plt.legend()
+
+plt.figure()
+
+plt.plot(epochs, smooth_curve(loss), 'bo', label='Smoothed training loss')
+plt.plot(epochs, smooth_curve(val_loss), 'b', label='Smoothed validation loss')
+plt.title('Training and validation loss')
+plt.legend()
+
+plt.show()
+```
+
+```{python}
+
 ```
