@@ -1,0 +1,738 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.8.0
+  kernelspec:
+    display_name: py3.8tf2.7
+    language: python
+    name: py3.8tf2.7
+---
+
+<!-- #region colab_type="text" -->
+This is a companion notebook for the book [Deep Learning with Python, Second Edition](https://www.manning.com/books/deep-learning-with-python-second-edition?a_aid=keras&a_bid=76564dff). For readability, it only contains runnable code blocks and section titles, and omits everything else in the book: text paragraphs, figures, and pseudocode.
+
+**If you want to be able to follow what's going on, I recommend reading the notebook side by side with your copy of the book.**
+
+This notebook was generated for TensorFlow 2.6.
+<!-- #endregion -->
+
+```{python}
+import sys
+
+!{sys.executable} -V
+!{sys.executable} -c "import tensorflow as tf; print(tf.version.GIT_VERSION, tf.version.VERSION)"
+
+## Enable one GPU by setting environment variable 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"   # Note: 0 = firts GPU
+```
+
+```{python}
+import os
+import sys
+import inspect
+
+print("os.getcwd(): " + os.getcwd())
+print("sys.prefix: ", sys.prefix)
+print("sys.exec_prefix: ", sys.exec_prefix)
+print("sys.executable: ", sys.executable)
+print("os.path.basename(sys.exec_prefix)", os.path.basename(sys.exec_prefix))
+
+print("inspect.getabsfile(inspect.currentframe()) :", inspect.getabsfile(inspect.currentframe()) )
+
+import tensorflow as tf
+print(f"TensorFlow Version: {tf.__version__}")
+print("inspect.getabsfile(tf) :", inspect.getabsfile(tf) )
+        
+from tensorflow import keras
+print(f"Keras Version: {keras.__version__}")
+print("inspect.getabsfile(keras) :", inspect.getabsfile(keras) )
+
+from tensorflow.keras import layers
+print("inspect.getabsfile(layers) :", inspect.getabsfile(layers) )
+
+from GAmodel import GAModel
+print("inspect.getabsfile(GAModel) :", inspect.getabsfile(GAModel) )
+
+if tf.__version__ >= "2.":
+    tf.config.list_physical_devices('GPU')
+    import tensorflow.keras
+    print(f"Keras Version: {tensorflow.keras.__version__}")
+    gpu = len(tf.config.list_physical_devices('GPU'))>0
+    print("GPU is", "available" if gpu else "NOT AVAILABLE")
+    if gpu:
+        print(tf.config.list_physical_devices('GPU'))
+
+```
+
+```{python}
+# Get installed package versions in virtual environment associated to Jupyter kernel
+import pkg_resources
+
+pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+
+for k in sorted(pkgs.keys()):
+    print(k, pkgs.get(k))
+```
+
+```{python}
+import subprocess
+import sys
+import pkg_resources
+
+
+# Calling [sys.executable, '-m', 'pip', 'install', name] 
+# rather than ['pip', 'install', name]
+# is making sure to get the "right" pip (i.e. you install in current virtual environment)
+def install(package):
+    """ Install package with pip if not yet installed in current virtual environment """
+    # Get installed package versions in virtual environment associated to Jupyter kernel
+    pkgs = dict([(d.__dict__.get("_key"), d.__dict__.get("_version")) for d in pkg_resources.working_set])
+    if package not in pkgs.keys():
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    else:
+        print(f"Package {package} version {pkgs.get(package)} is already installed")
+    
+install("ipython-autotime")
+# %load_ext autotime
+```
+
+```{python}
+import tensorflow as tf
+print(f"TensorFlow Version: {tf.__version__}")
+
+if tf.__version__ >= "2.":
+    tf.config.list_physical_devices('GPU')
+    import tensorflow.keras
+    print(f"Keras Version: {tensorflow.keras.__version__}")
+    gpu = len(tf.config.list_physical_devices('GPU'))>0
+    print("GPU is", "available" if gpu else "NOT AVAILABLE")
+    if gpu:
+        print(tf.config.list_physical_devices('GPU'))
+        # Try to set the best GPU options for the task at hand
+        gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=0.49, allow_growth = True)
+        sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options,
+                                                                    allow_soft_placement=True,
+                                                                    log_device_placement=False,
+                                                                    device_count = {'GPU':1}     # adjust to number of available GPUs you want to use
+                                                                   ))
+          
+# !nvidia-smi
+```
+
+<!-- #region colab_type="text" -->
+# 11 Deep learning for text
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## 11.1 Natural-language processing: The bird's eye view
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+## 11.2 Preparing text data
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 11.2.1 Text standardization
+
+Common transformations:
+
+* convert to lowercase and remove punctuation characters
+* convert special characters to a standard form (remove accents, ligatures)
+* stemming (or lemmatization)
+
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 11.2.2 Text splitting (tokenization)
+
+* Word-level tokenization, or sub-word ('staring' -> 'star' + 'ing')
+* N-gram tokenization (e.g. 2 consecutive words make a 2-gram or bigram)
+* Character-level tokenization (rare, sepcial contexts: text generaction, speech recognition)
+
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 11.2.3 Vocabulary indexing
+
+* build an (unique integer) index of all tokens found in the training data (=vocabulary), possibly restricted to the top 20,000 or 30,000 most common words, + an "out-of-vocabulary" (OOV) index, usually 1, and a "mask token", usually 0, used to padd shorter sequences to a common length.
+* one-hot encoding each token
+
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 11.2.4 Using the TextVectorization layer
+
+The 3 steps above can easily be implemented in 'pure python', as shown below; however using Keras `TextVectorization` layer would be *faster* and *more efficient*, and it can be dropped *directly into a `tf.data` pipeline or a Keras model*.
+<!-- #endregion -->
+
+```{python colab_type="code"}
+import string
+
+class Vectorizer:
+    def standardize(self, text):
+        text = text.lower()
+        return "".join(char for char in text if char not in string.punctuation)
+
+    def tokenize(self, text):
+        text = self.standardize(text)
+        return text.split()
+
+    def make_vocabulary(self, dataset):
+        self.vocabulary = {"": 0, "[UNK]": 1}
+        for text in dataset:
+            text = self.standardize(text)
+            tokens = self.tokenize(text)
+            for token in tokens:
+                if token not in self.vocabulary:
+                    self.vocabulary[token] = len(self.vocabulary)
+        self.inverse_vocabulary = dict(
+            (v, k) for k, v in self.vocabulary.items())
+
+    def encode(self, text):
+        text = self.standardize(text)
+        tokens = self.tokenize(text)
+        return [self.vocabulary.get(token, 1) for token in tokens]
+
+    def decode(self, int_sequence):
+        return " ".join(
+            self.inverse_vocabulary.get(i, "[UNK]") for i in int_sequence)
+
+vectorizer = Vectorizer()
+# Haiku by poet Hokushi
+dataset = [
+    "I write, erase, rewrite",
+    "Erase again, and then",
+    "A poppy blooms.",
+]
+vectorizer.make_vocabulary(dataset)
+```
+
+```{python colab_type="code"}
+test_sentence = "I write, rewrite, and still rewrite again"
+encoded_sentence = vectorizer.encode(test_sentence)
+print(encoded_sentence)
+```
+
+```{python colab_type="code"}
+decoded_sentence = vectorizer.decode(encoded_sentence)
+print(decoded_sentence)
+```
+
+Using Keras `TextVectorization` requires `tf.string` tensors, not regular Python strings! 
+
+It looks like this:
+
+```{python colab_type="code"}
+from tensorflow.keras.layers import TextVectorization
+
+text_vectorization = TextVectorization(
+    output_mode="int",
+)
+```
+
+Using Keras `TextVectorization` layer will by default:
+
+* convert to lowercase and remove punctuation
+* split on whitespace
+
+Because TextVectorization is mostly a dictionary lookup operation, it can *only run on CPU* before sending its output to the GPU.
+
+This default layer behavior is equivalent to the following:
+
+```{python colab_type="code"}
+import re
+import string
+import tensorflow as tf
+
+def custom_standardization_fn(string_tensor):
+    lowercase_string = tf.strings.lower(string_tensor)                                            # Convert strings to lowercase.
+    return tf.strings.regex_replace(lowercase_string, f"[{re.escape(string.punctuation)}]", "")   # Replace punctuation characters with the empty string.
+
+def custom_split_fn(string_tensor):
+    return tf.strings.split(string_tensor)                                                        # Split strings on whitespace.
+
+text_vectorization = TextVectorization(
+    output_mode="int",
+    standardize=custom_standardization_fn,
+    split=custom_split_fn,
+)
+```
+
+To index the vocabulary of a text corpus, just call the `adapt()` method of the layer
+with a `Dataset` object that yields strings, or just with a list of Python strings:
+
+```{python colab_type="code"}
+dataset = [
+    "I write, erase, rewrite",
+    "Erase again, and then",
+    "A poppy blooms.",
+]
+
+text_vectorization.adapt(dataset)
+```
+
+You can retrieve the computed vocabulary via `get_vocabulary()` — useful to convert text encoded as integers back to words.
+
+The first two entries in the vocabulary are:
+1. the mask token (index 0) 
+2. the OOV token (index 1)
+
+Entries in the vocabulary list are sorted by frequency, so with a real-world dataset, very common words like “the” or “a” would come first.
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.1 Displaying the vocabulary --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+text_vectorization.get_vocabulary()
+```
+
+```{python colab_type="code"}
+# Encoding a sentence
+vocabulary = text_vectorization.get_vocabulary()
+test_sentence = "I write, rewrite, and still rewrite again"
+encoded_sentence = text_vectorization(test_sentence)
+
+print(encoded_sentence)
+```
+
+```{python colab_type="code"}
+# Decoding a sentence
+inverse_vocab = dict(enumerate(vocabulary))
+decoded_sentence = " ".join(inverse_vocab[int(i)] for i in encoded_sentence)
+
+print(decoded_sentence)
+```
+
+#### Using the `TextVectorization` layer in a `tf.data` pipeline:
+
+This allows *asynchronous processing* and **better performance while training with a GPU**: while the GPU runs the model on one batch of vectorized data, the CPU stays busy by vectorizing the next batch of raw strings.
+
+When training with a CPU only, the performance is the same whether the `TextVectorization` layer is part of a `tf.data` pipeline, or whether it is directly included in the model.
+
+When putting a model into production, the pre-processing can be added into the model - see **"Exporting a model that processes raw strings"**
+
+
+```{python}
+# Creating a tf.data dataset that yields string tensors.
+string_dataset = tf.data.Dataset.from_tensor_slices([
+    "I write, erase, rewrite",
+    "Erase again, and then",
+    "A poppy blooms.",
+])
+
+# Extracting strings from our tf.data dataset
+for ele in string_dataset:
+    print(ele.numpy())
+    
+# Extract first element from iterator - TypeError: 'TensorSliceDataset' object is not an iterator
+# print(next(string_dataset))
+
+# Extract 1st element from dataset
+# print(string_dataset.get_single_element())  # InvalidArgumentError: Dataset had more than one element. [Op:DatasetToSingleElement]
+el1 = string_dataset.take(1).get_single_element()
+print("el1.shape:", el1.shape, "\n")  # ok
+print("el1:", el1, "\n")
+
+# Creating a tf.data dataset that yields sequences encoded as integers
+int_sequence_dataset = string_dataset.map(   
+    text_vectorization,
+    num_parallel_calls=4)                    # The num_parallel_calls argument is used to parallelize the map() call across multiple CPU cores.
+
+# Extracting integer sequences from our tf.data dataset
+for ele in int_sequence_dataset:
+    print(ele.numpy())                                              # integer (encoded) sequence
+    print(" ".join(inverse_vocab[int(i)] for i in ele.numpy()))     # decoded sequence
+
+# Extract first element from iterator - TypeError: 'ParallelMapDataset' object is not an iterator
+# print(next(int_sequence_dataset))
+
+# Extract 1st element from dataset
+# print(int_sequence_dataset.get_single_element())  # InvalidArgumentError: Dataset had more than one element. [Op:DatasetToSingleElement]
+el1s = int_sequence_dataset.take(1).get_single_element()
+print("el1s.shape:", el1s.shape, "\n")  # ok
+print("el1s:", el1s, "\n")
+
+```
+
+#### Using the `TextVectorization` layer as part of a model:
+
+The vectorization happens *synchronously with the rest of the model*, i.e. this is slower when training with a GPU, as the rest of the model (placed on the GPU) has to wait for the output of the `TextVectorization` layer (placed on the CPU) to be ready in order to get to work.
+
+However the model is ready for production: it directly accepts raw strings as input and includes the text standardization and tokenization steps.
+
+```{script magic_args="echo Not runnable code sketch"}
+
+text_input = keras.Input(shape=(), dtype="string")               # Create a symbolic input that expects strings
+vectorized_text = text_vectorization(text_input)                 # Apply the text vectorization layer to the input
+embedded_input = keras.layers.Embedding(...)(vectorized_text)    # You can keep chaining new layers on top — just your regular Functional API model.
+output = ... 
+model = keras.Model(text_input, output)
+
+
+```
+
+<!-- #region colab_type="text" -->
+## 11.3 Two approaches for representing groups of words: **Sets** and **Sequences**
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+### 11.3.1 Preparing the IMDB movie reviews data
+<!-- #endregion -->
+
+```{python colab_type="code"}
+# download the dataset from the Stanford page of Andrew Maas 
+! [ ! -f aclImdb_v1.tar.gz ] && curl -O https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz
+# if it already exists, delete the directory that will be extracted
+![ -d aclImdb/ ] && rm -r aclImdb/
+# uncompress
+# !tar -xf aclImdb_v1.tar.gz
+
+# look at the folder strudture
+import os
+for root, dirs, files in os.walk("aclImdb"):
+#     for d in dirs:
+#         print(os.path.join(root, d))    
+    print(root, ":", len(files), 'files')
+
+```
+
+```{python colab_type="code"}
+# remove unneded subdirectory
+# !rm -r aclImdb/train/unsup
+```
+
+```{python colab_type="code"}
+# look at some file contents
+# !cat aclImdb/train/pos/4077_10.txt
+```
+
+```{python colab_type="code"}
+import os, pathlib, shutil, random
+
+# Prepare a validation set by setting apart 20% of the training text files in a new directory, aclImdb/val
+
+base_dir = pathlib.Path("aclImdb")
+val_dir = base_dir / "val"
+train_dir = base_dir / "train"
+
+for category in ("neg", "pos"):
+    os.makedirs(val_dir / category)
+    files = os.listdir(train_dir / category)
+    random.Random(1337).shuffle(files)              # Shuffle the list of training files using a seed, to ensure we get the same validation set every time we run the code.
+    num_val_samples = int(0.2 * len(files))         # Take 20% of the training files to use for validation.
+    val_files = files[-num_val_samples:]
+    for fname in val_files:                         # Move the files to  aclImdb/val/neg 
+                                                    #                and aclImdb/val/pos
+        shutil.move(train_dir / category / fname,
+                    val_dir / category / fname)
+        
+# look at the updated folder strudture
+import os
+for root, dirs, files in os.walk("aclImdb"):
+#     for d in dirs:
+#         print(os.path.join(root, d))    
+    print(root, ":", len(files), 'files')
+
+```
+
+The function `text_dataset_from_directory()` creates a batched dataset of text files with labels (classes) taken from subdirectory names:
+
+```{python colab_type="code"}
+from tensorflow import keras
+batch_size = 32
+
+# Running this line should output “Found 20000 files belonging to 2 classes”; 
+# if you see “Found 70000 files belonging to 3 classes,” it means you forgot to delete the aclImdb/train/unsup directory.
+train_ds = keras.utils.text_dataset_from_directory(
+    "aclImdb/train", batch_size=batch_size
+)
+
+val_ds = keras.utils.text_dataset_from_directory(
+    "aclImdb/val", batch_size=batch_size
+)
+
+test_ds = keras.utils.text_dataset_from_directory(
+    "aclImdb/test", batch_size=batch_size
+)
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.2 Displaying the shapes and dtypes of the first batch --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+for inputs, targets in train_ds:
+    print("inputs.shape:", inputs.shape)
+    print("inputs.dtype:", inputs.dtype)
+    print("targets.shape:", targets.shape)
+    print("targets.dtype:", targets.dtype)
+    print("inputs[0]:", inputs[0], "\n")
+    print("targets[0]:", targets[0])
+    break
+```
+
+<!-- #region colab_type="text" -->
+### 11.3.2 Processing words as a set: The bag-of-words approach
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+#### Single words (unigrams) with binary encoding (multi-hot)
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.3 Preprocessing our datasets with a `TextVectorization` layer --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+text_vectorization = TextVectorization(
+    max_tokens=20000,                # Limit the vocabulary to the 20,000 most frequent words. Otherwise we’d be indexing every word in the training data, 
+                                     # potentially tens of thousands of terms that only occur once or twice and thus aren’t informative. 
+                                     # In general, 20,000 is the right vocabulary size for text classification.
+    output_mode="multi_hot",         # Encode the output tokens as multi-hot binary vectors.
+)
+text_only_train_ds = train_ds.map(lambda x, y: x)   # Prepare a dataset that only yields raw text inputs (no labels).
+text_vectorization.adapt(text_only_train_ds)        # Use that dataset to index the dataset vocabulary via the adapt() method.
+
+
+# Prepare processed versions of our training, validation, and test dataset.
+# Make sure to specify num_parallel_calls to leverage multiple CPU cores.
+import multiprocessing
+
+n_par_calls = multiprocessing.cpu_count() -1
+print("Using all but 1 CPU cores:", n_par_calls)
+
+binary_1gram_train_ds = train_ds.map(lambda x, y: (text_vectorization(x), y), num_parallel_calls = n_par_calls)
+
+binary_1gram_val_ds   = val_ds.map(  lambda x, y: (text_vectorization(x), y), num_parallel_calls = n_par_calls)
+
+binary_1gram_test_ds  = test_ds.map( lambda x, y: (text_vectorization(x), y), num_parallel_calls = n_par_calls)
+
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.4 Inspecting the output of our binary unigram dataset --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+for inputs, targets in binary_1gram_train_ds:
+    print("inputs.shape:", inputs.shape)   # Inputs are batches of 20,000-dimensional vectors.
+    print("inputs.dtype:", inputs.dtype)
+    print("targets.shape:", targets.shape)
+    print("targets.dtype:", targets.dtype)
+    print("inputs[0]:", inputs[0])         # These vectors consist entirely of ones and zeros.
+    print("targets[0]:", targets[0])
+    break
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.5 Our model-building utility --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+from tensorflow import keras
+from tensorflow.keras import layers
+
+def get_model(max_tokens=20000, hidden_dim=16):
+    inputs = keras.Input(shape=(max_tokens,))
+    x = layers.Dense(hidden_dim, activation="relu")(inputs)
+    x = layers.Dropout(0.5)(x)
+    outputs = layers.Dense(1, activation="sigmoid")(x)
+    model = keras.Model(inputs, outputs)
+    model.compile(optimizer="rmsprop",
+                  loss="binary_crossentropy",
+                  metrics=["accuracy"])
+    return model
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.6 Training and testing the binary unigram model --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+model = get_model()
+model.summary()
+callbacks = [
+    keras.callbacks.ModelCheckpoint("binary_1gram.keras",
+                                    save_best_only=True)
+]
+model.fit(binary_1gram_train_ds.cache(),
+          validation_data=binary_1gram_val_ds.cache(),  # We call cache() on the datasets to cache them in memory: this way, we will only do the preprocessing once, 
+                                                        # during the first epoch, and we’ll reuse the preprocessed texts for the following epochs. 
+                                                        # This can only be done if the data is small enough to fit in memory.
+          epochs=10,
+          callbacks=callbacks)
+
+model = keras.models.load_model("binary_1gram.keras")
+print(f"\nTest acc: {model.evaluate(binary_1gram_test_ds)[1]:.3f}")
+```
+
+<!-- #region colab_type="text" -->
+#### Bigrams with binary encoding
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.7 Configuring the `TextVectorization` layer to return bigrams --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+text_vectorization = TextVectorization(
+    ngrams=2,
+    max_tokens=20000,
+    output_mode="multi_hot",
+)
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.8 Training and testing the binary bigram model --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+text_only_train_ds = train_ds.map(lambda x, y: x)   # Prepare a dataset that only yields raw text inputs (no labels).
+text_vectorization.adapt(text_only_train_ds)
+
+binary_2gram_train_ds = train_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=4)
+
+binary_2gram_val_ds = val_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=4)
+
+binary_2gram_test_ds = test_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=4)
+
+model = get_model()
+model.summary()
+callbacks = [
+    keras.callbacks.ModelCheckpoint("binary_2gram.keras",
+                                    save_best_only=True)
+]
+model.fit(binary_2gram_train_ds.cache(),
+          validation_data=binary_2gram_val_ds.cache(),
+          epochs=10,
+          callbacks=callbacks)
+
+model = keras.models.load_model("binary_2gram.keras")
+print(f"\nTest acc: {model.evaluate(binary_2gram_test_ds)[1]:.3f}")
+```
+
+<!-- #region colab_type="text" -->
+#### Bigrams with TF-IDF encoding
+<!-- #endregion -->
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.9 Configuring the `TextVectorization` layer to return token counts --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+text_vectorization = TextVectorization(
+    ngrams=2,
+    max_tokens=20000,
+    output_mode="count"
+)
+```
+
+TF-IDF stands for “term frequency, inverse document frequency.
+
+TF-IDF is a metric that weights a given term by taking “term frequency,” how many times the term appears in the current document, and dividing it by a measure of “document frequency,” which estimates how often the term comes up across the dataset. You’d compute it as follows:
+
+    def tfidf(term, document, dataset):
+        term_freq = document.count(term)
+        doc_freq = math.log(sum(doc.count(term) for doc in dataset) + 1)
+        return term_freq / doc_freq
+
+
+<!-- #region colab_type="text" -->
+**-- 11.10 Configuring `TextVectorization` to return TF-IDF-weighted outputs --**
+<!-- #endregion -->
+
+```{python colab_type="code"}
+text_vectorization = TextVectorization(
+    ngrams=2,
+    max_tokens=20000,
+    output_mode="tf_idf",
+)
+```
+
+<!-- #region colab_type="text" -->
+**-- Listing 11.11 raining and testing the TF-IDF bigram model --**
+<!-- #endregion -->
+
+```{python}
+text_only_train_ds = train_ds.map(lambda x, y: x)   # Prepare a dataset that only yields raw text inputs (no labels).
+text_vectorization.adapt(text_only_train_ds)  # The adapt() call will learn the TF-IDF weights in addition to the vocabulary.
+#                                               Running this on GPU throws the following errors
+#                                               InvalidArgumentError: 2 root error(s) found.
+#                                                   (0) Invalid argument:  32 root error(s) found.
+#                                                   (0) Invalid argument: 2 root error(s) found.
+#                                                   (0) Invalid argument: During Variant Host->Device Copy: non-DMA-copy attempted of tensor type: string
+#                                                   (1) Invalid argument: During Variant Host->Device Copy: non-DMA-copy attempted of tensor type: string
+#                                                 0 successful operations.
+#                                               [...]
+#--------------------------------------------------------- See https://github.com/tensorflow/tensorflow/issues/47325 --
+# Issue occurs on GPU only, confirmed with TF 2.3, 2.4, 2.5 (and now 2.6).  Seems fixed with 2.7.
+#----------------------------------------------------------------------------------------------------------------------
+
+tfidf_2gram_train_ds = train_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=4)
+
+tfidf_2gram_val_ds = val_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=4)
+
+tfidf_2gram_test_ds = test_ds.map(
+    lambda x, y: (text_vectorization(x), y),
+    num_parallel_calls=4)
+
+model = get_model()
+model.summary()
+
+callbacks = [
+    keras.callbacks.ModelCheckpoint("tfidf_2gram.keras",
+                                    save_best_only=True)
+]
+
+model.fit(tfidf_2gram_train_ds.cache(),
+          validation_data=tfidf_2gram_val_ds.cache(),
+          epochs=10,
+          callbacks=callbacks)
+
+model = keras.models.load_model("tfidf_2gram.keras")
+print(f"\nTest acc: {model.evaluate(tfidf_2gram_test_ds)[1]:.3f}")
+
+```
+
+### Exporting a model that processes raw strings
+
+We just have to create a new model that reuses your `TextVectorization` layer and adds to it the model we just trained:
+
+```{python colab_type="code"}
+inputs = keras.Input(shape=(1,), dtype="string")    # One input sample would be one string.
+processed_inputs = text_vectorization(inputs)       # Apply text preprocessing
+outputs = model(processed_inputs)                   # Apply the previously trained model
+inference_model = keras.Model(inputs, outputs)      # Instantiate the end-to-end model
+```
+
+The resulting model can process batches of raw strings:
+
+```{python colab_type="code"}
+import tensorflow as tf
+
+raw_text_data = tf.convert_to_tensor([
+    ["That was an excellent movie, I loved it."],
+])
+predictions = inference_model(raw_text_data)
+print(f"{float(predictions[0] * 100):.2f} percent positive")
+```
+
+```{python}
+
+```
