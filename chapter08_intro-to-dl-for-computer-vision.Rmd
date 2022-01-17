@@ -1,4 +1,6 @@
 ---
+title: 'Chapter 08: Introduction to Deep Learning for Computer Vision'
+author: "Fr. Chollet"
 jupyter:
   jupytext:
     text_representation:
@@ -10,7 +12,44 @@ jupyter:
     display_name: Python 3
     language: python
     name: python3
+output:
+  html_document:
+    toc: yes
+    df_print: paged
+  html_notebook:
+    theme: cerulean
+    toc: yes
+params:
+  verbose: 2
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(error=TRUE, warning = TRUE, message = TRUE)
+
+library(reticulate)
+vrbs <- 2
+if (exists("params", mode = "list")) vrbs <- params$verbose
+
+# Function to check GPU state and display the most relevant information 
+nvidia_smi <- function(show = TRUE){
+  smi <- system("nvidia-smi 2>&1", intern=TRUE)
+  start <- which(trimws(smi) == "")
+  end <- length(smi)
+  if ((0<start & start < end) %in% TRUE) {
+    if (show %in% TRUE) cat(smi[start:end], sep = "\n")
+    return(c(GPUtotalMiBusage = sum(as.numeric(sub("^.+ (\\d+)MiB \\|$"
+                                                , "\\1"
+                                                , grep("^.+ \\d+MiB \\|$", smi[start:end], value = TRUE))))))
+    
+  }
+  if (grepl("No running processes found", smi)) {
+    if (show %in% TRUE) cat(grep("No running processes found", smi, value = TRUE))
+    return(c(GPUtotalMiBusage=0))
+  }
+}
+
+```
+
 
 <!-- #region colab_type="text" -->
 This is a companion notebook for the book [Deep Learning with Python, Second Edition](https://www.manning.com/books/deep-learning-with-python-second-edition?a_aid=keras&a_bid=76564dff). For readability, it only contains runnable code blocks and section titles, and omits everything else in the book: text paragraphs, figures, and pseudocode.
@@ -44,6 +83,7 @@ x = layers.Conv2D(filters=128, kernel_size=3, activation="relu")(x)
 x = layers.Flatten()(x)
 outputs = layers.Dense(10, activation="softmax")(x)
 model = keras.Model(inputs=inputs, outputs=outputs)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -52,6 +92,7 @@ model = keras.Model(inputs=inputs, outputs=outputs)
 
 ```{python colab_type="code"}
 model.summary()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -69,7 +110,8 @@ test_images = test_images.astype("float32") / 255
 model.compile(optimizer="rmsprop",
     loss="sparse_categorical_crossentropy",
     metrics=["accuracy"])
-model.fit(train_images, train_labels, epochs=5, batch_size=64)
+model.fit(train_images, train_labels, epochs=5, batch_size=64, verbose = r.vrbs)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -77,8 +119,9 @@ model.fit(train_images, train_labels, epochs=5, batch_size=64)
 <!-- #endregion -->
 
 ```{python colab_type="code"}
-test_loss, test_acc = model.evaluate(test_images, test_labels)
+test_loss, test_acc = model.evaluate(test_images, test_labels, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -109,10 +152,12 @@ x = layers.Conv2D(filters=128, kernel_size=3, activation="relu")(x)
 x = layers.Flatten()(x)
 outputs = layers.Dense(10, activation="softmax")(x)
 model_no_max_pool = keras.Model(inputs=inputs, outputs=outputs)
+
 ```
 
 ```{python colab_type="code"}
 model_no_max_pool.summary()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -128,22 +173,44 @@ model_no_max_pool.summary()
 <!-- #endregion -->
 
 ```{python colab_type="code"}
-from google.colab import files
-files.upload()
+# from google.colab import files
+# files.upload()
+
 ```
 
-```{python colab_type="code"}
+```{bash}
 # !mkdir ~/.kaggle
 # !cp kaggle.json ~/.kaggle/
-# !chmod 600 ~/.kaggle/kaggle.json
+chmod 600 ~/.kaggle/kaggle.json
+
 ```
 
-```{python colab_type="code"}
-# !kaggle competitions download -c dogs-vs-cats
+```{python}
+import subprocess
+import sys
+
+# Calling [sys.executable, '-m', 'pip', 'install', name] 
+# rather than ['pip', 'install', name]
+# is making sure to get the "right" pip (i.e. you install in current virtual environment)
+def install(package):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+    
+install("kaggle")
+
 ```
 
-```{python colab_type="code"}
-# !unzip -qq train.zip
+```{bash}
+which kaggle
+
+kaggle competitions download -c dogs-vs-cats
+
+```
+
+```{bash}
+ unzip -l dogs-vs-cats.zip
+ unzip -qo dogs-vs-cats.zip
+ unzip -qo train.zip
+ 
 ```
 
 <!-- #region colab_type="text" -->
@@ -159,7 +226,7 @@ new_base_dir = pathlib.Path("cats_vs_dogs_small")
 def make_subset(subset_name, start_index, end_index):
     for category in ("cat", "dog"):
         dir = new_base_dir / subset_name / category
-        os.makedirs(dir)
+        os.makedirs(dir, exist_ok=True)
         fnames = [f"{category}.{i}.jpg" for i in range(start_index, end_index)]
         for fname in fnames:
             shutil.copyfile(src=original_dir / fname,
@@ -168,6 +235,7 @@ def make_subset(subset_name, start_index, end_index):
 make_subset("train", start_index=0, end_index=1000)
 make_subset("validation", start_index=1000, end_index=1500)
 make_subset("test", start_index=1500, end_index=2500)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -196,10 +264,12 @@ x = layers.Conv2D(filters=256, kernel_size=3, activation="relu")(x)
 x = layers.Flatten()(x)
 outputs = layers.Dense(1, activation="sigmoid")(x)
 model = keras.Model(inputs=inputs, outputs=outputs)
+
 ```
 
 ```{python colab_type="code"}
 model.summary()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -235,6 +305,7 @@ test_dataset = image_dataset_from_directory(
     new_base_dir / "test",
     image_size=(180, 180),
     batch_size=32)
+
 ```
 
 ```{python colab_type="code"}
@@ -242,6 +313,7 @@ import numpy as np
 import tensorflow as tf
 random_numbers = np.random.normal(size=(1000, 16))
 dataset = tf.data.Dataset.from_tensor_slices(random_numbers)
+
 ```
 
 ```{python colab_type="code"}
@@ -249,6 +321,7 @@ for i, element in enumerate(dataset):
     print(element.shape)
     if i >= 2:
         break
+
 ```
 
 ```{python colab_type="code"}
@@ -257,6 +330,7 @@ for i, element in enumerate(batched_dataset):
     print(element.shape)
     if i >= 2:
         break
+
 ```
 
 ```{python colab_type="code"}
@@ -265,6 +339,7 @@ for i, element in enumerate(reshaped_dataset):
     print(element.shape)
     if i >= 2:
         break
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -276,6 +351,7 @@ for data_batch, labels_batch in train_dataset:
     print("data batch shape:", data_batch.shape)
     print("labels batch shape:", labels_batch.shape)
     break
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -293,7 +369,9 @@ history = model.fit(
     train_dataset,
     epochs=30,
     validation_data=validation_dataset,
-    callbacks=callbacks)
+    callbacks=callbacks,
+    verbose=vrbs)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -317,6 +395,7 @@ plt.plot(epochs, val_loss, "b", label="Validation loss")
 plt.title("Training and validation loss")
 plt.legend()
 plt.show()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -325,8 +404,9 @@ plt.show()
 
 ```{python colab_type="code"}
 test_model = keras.models.load_model("convnet_from_scratch.keras")
-test_loss, test_acc = test_model.evaluate(test_dataset)
+test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -345,6 +425,7 @@ data_augmentation = keras.Sequential(
         layers.RandomZoom(0.2),
     ]
 )
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -359,6 +440,7 @@ for images, _ in train_dataset.take(1):
         ax = plt.subplot(3, 3, i + 1)
         plt.imshow(augmented_images[0].numpy().astype("uint8"))
         plt.axis("off")
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -386,6 +468,7 @@ model = keras.Model(inputs=inputs, outputs=outputs)
 model.compile(loss="binary_crossentropy",
               optimizer="rmsprop",
               metrics=["accuracy"])
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -403,7 +486,8 @@ history = model.fit(
     train_dataset,
     epochs=100,
     validation_data=validation_dataset,
-    callbacks=callbacks)
+    callbacks=callbacks, verbose = r.vrbs)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -413,8 +497,9 @@ history = model.fit(
 ```{python colab_type="code"}
 test_model = keras.models.load_model(
     "convnet_from_scratch_with_augmentation.keras")
-test_loss, test_acc = test_model.evaluate(test_dataset)
+test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -434,10 +519,12 @@ conv_base = keras.applications.vgg16.VGG16(
     weights="imagenet",
     include_top=False,
     input_shape=(180, 180, 3))
+    
 ```
 
 ```{python colab_type="code"}
 conv_base.summary()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -464,10 +551,12 @@ def get_features_and_labels(dataset):
 train_features, train_labels =  get_features_and_labels(train_dataset)
 val_features, val_labels =  get_features_and_labels(validation_dataset)
 test_features, test_labels =  get_features_and_labels(test_dataset)
+
 ```
 
 ```{python colab_type="code"}
 train_features.shape
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -495,7 +584,8 @@ history = model.fit(
     train_features, train_labels,
     epochs=20,
     validation_data=(val_features, val_labels),
-    callbacks=callbacks)
+    callbacks=callbacks, verbose = r.vrbs)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -519,6 +609,7 @@ plt.plot(epochs, val_loss, "b", label="Validation loss")
 plt.title("Training and validation loss")
 plt.legend()
 plt.show()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -534,6 +625,7 @@ conv_base  = keras.applications.vgg16.VGG16(
     weights="imagenet",
     include_top=False)
 conv_base.trainable = False
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -544,12 +636,14 @@ conv_base.trainable = False
 conv_base.trainable = True
 print("This is the number of trainable weights "
       "before freezing the conv base:", len(conv_base.trainable_weights))
+
 ```
 
 ```{python colab_type="code"}
 conv_base.trainable = False
 print("This is the number of trainable weights "
       "after freezing the conv base:", len(conv_base.trainable_weights))
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -577,6 +671,7 @@ model = keras.Model(inputs, outputs)
 model.compile(loss="binary_crossentropy",
               optimizer="rmsprop",
               metrics=["accuracy"])
+
 ```
 
 ```{python colab_type="code"}
@@ -590,7 +685,8 @@ history = model.fit(
     train_dataset,
     epochs=50,
     validation_data=validation_dataset,
-    callbacks=callbacks)
+    callbacks=callbacks, verbose = r.vrbs)
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -600,8 +696,9 @@ history = model.fit(
 ```{python colab_type="code"}
 test_model = keras.models.load_model(
     "feature_extraction_with_data_augmentation.keras")
-test_loss, test_acc = test_model.evaluate(test_dataset)
+test_loss, test_acc = test_model.evaluate(test_dataset, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -610,6 +707,7 @@ print(f"Test accuracy: {test_acc:.3f}")
 
 ```{python colab_type="code"}
 conv_base.summary()
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -620,6 +718,7 @@ conv_base.summary()
 conv_base.trainable = True
 for layer in conv_base.layers[:-4]:
     layer.trainable = False
+
 ```
 
 <!-- #region colab_type="text" -->
@@ -641,13 +740,15 @@ history = model.fit(
     train_dataset,
     epochs=30,
     validation_data=validation_dataset,
-    callbacks=callbacks)
+    callbacks=callbacks, verbose = r.vrbs)
+
 ```
 
 ```{python colab_type="code"}
 model = keras.models.load_model("fine_tuning.keras")
-test_loss, test_acc = model.evaluate(test_dataset)
+test_loss, test_acc = model.evaluate(test_dataset, verbose = r.vrbs)
 print(f"Test accuracy: {test_acc:.3f}")
+
 ```
 
 <!-- #region colab_type="text" -->
