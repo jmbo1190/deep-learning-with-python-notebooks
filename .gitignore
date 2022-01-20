@@ -10,8 +10,8 @@
 *.htm
 *.html
 *.zip
-logs/
-*/
+logs/*
+*/*
 Untitled1.Rmd
 elephant.jpg
 elephant_cam.jpg
